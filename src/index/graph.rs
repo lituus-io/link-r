@@ -143,11 +143,7 @@ impl Graph {
             .map(|&(id, s)| {
                 let mut sum = 0.0f32;
                 let mut count = 0u32;
-                for &nb in self
-                    .out_neighbors(id)
-                    .iter()
-                    .chain(self.in_neighbors(id))
-                {
+                for &nb in self.out_neighbors(id).iter().chain(self.in_neighbors(id)) {
                     if let Some(&ns) = base.get(&nb) {
                         sum += ns;
                         count += 1;

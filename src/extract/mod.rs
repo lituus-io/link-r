@@ -91,7 +91,8 @@ impl Descriptor {
         // capped *before* sorting, so a hub page keeps its first (most
         // prominent) links rather than a hash-random subset, then sorted for
         // deterministic storage.
-        let mut seen = std::collections::HashSet::with_capacity(self.links.len().min(MAX_EDGES_PER_DOC));
+        let mut seen =
+            std::collections::HashSet::with_capacity(self.links.len().min(MAX_EDGES_PER_DOC));
         let mut edges: Vec<crate::url_key::UrlKey> = Vec::new();
         for href in &self.links {
             let Ok(target) = url.join(href) else { continue };

@@ -241,7 +241,8 @@ fn find_ci(hay: &[u8], needle: &[u8]) -> Option<usize> {
     while i + needle.len() <= hay.len() {
         let off = memchr(first, &hay[i..])?;
         let pos = i + off;
-        if pos + needle.len() <= hay.len() && hay[pos..pos + needle.len()].eq_ignore_ascii_case(needle)
+        if pos + needle.len() <= hay.len()
+            && hay[pos..pos + needle.len()].eq_ignore_ascii_case(needle)
         {
             return Some(pos);
         }

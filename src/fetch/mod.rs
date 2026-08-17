@@ -11,7 +11,8 @@
 #[cfg(feature = "http")]
 pub mod http;
 #[cfg(feature = "http")]
-#[cfg_attr(not(feature = "robots"), allow(unused_imports))] // consumed by the robots UA-parity check
+#[cfg_attr(not(feature = "robots"), allow(unused_imports))]
+// consumed by the robots UA-parity check
 pub(crate) use http::DEFAULT_UA;
 
 #[cfg(feature = "http")]

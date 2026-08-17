@@ -14,7 +14,10 @@ use crate::extract::html::extract_links;
 /// Kind-aware outbound-link extraction for the crawl frontier: HTML uses the
 /// byte scanner; Markdown uses the zero-dep Markdown link scanner (when that
 /// extractor is compiled in); other kinds follow nothing.
-fn extract_links_for(kind: crate::resource::ResourceKind, bytes: &[u8]) -> Vec<compact_str::CompactString> {
+fn extract_links_for(
+    kind: crate::resource::ResourceKind,
+    bytes: &[u8],
+) -> Vec<compact_str::CompactString> {
     match kind {
         crate::resource::ResourceKind::Html => extract_links(bytes),
         #[cfg(feature = "markdown")]
@@ -198,7 +201,11 @@ impl<F: Fetcher> CrawlSource<F> {
     /// Create with explicit configuration.
     #[must_use]
     pub fn with_config(fetcher: F, config: CrawlConfig) -> Self {
-        Self { fetcher, config, failed: std::sync::atomic::AtomicU32::new(0) }
+        Self {
+            fetcher,
+            config,
+            failed: std::sync::atomic::AtomicU32::new(0),
+        }
     }
 
     /// Set the crawl depth.
@@ -336,8 +343,11 @@ fn extension_allowed(url: &Url, extensions: &[CompactString]) -> bool {
     if extensions.is_empty() {
         return true;
     }
-    ext_of(url.path())
-        .is_some_and(|e| extensions.iter().any(|allow| allow.as_str().eq_ignore_ascii_case(e)))
+    ext_of(url.path()).is_some_and(|e| {
+        extensions
+            .iter()
+            .any(|allow| allow.as_str().eq_ignore_ascii_case(e))
+    })
 }
 
 /// Extensions that clearly point at non-document assets the crawler skips.
@@ -415,7 +425,9 @@ struct Pacer {
 
 impl Pacer {
     fn new() -> Self {
-        Self { next_free: std::collections::HashMap::new() }
+        Self {
+            next_free: std::collections::HashMap::new(),
+        }
     }
 
     /// Reserve the next start slot for `host`; returns how long that worker
@@ -425,7 +437,10 @@ impl Pacer {
             return Duration::ZERO;
         }
         let now = Instant::now();
-        let entry = self.next_free.entry(CompactString::from(host)).or_insert(now);
+        let entry = self
+            .next_free
+            .entry(CompactString::from(host))
+            .or_insert(now);
         let slot = (*entry).max(now);
         *entry = slot + interval;
         slot - now
@@ -834,8 +849,14 @@ mod tests {
         let source = CrawlSource::new(MockSite { pages }).depth(2);
         let root = SourceRef::http("https://x.dev/docs").unwrap();
         let urls = crawl_urls(&source, &root).await;
-        assert!(urls.contains(&"https://x.dev/docs/guide".to_string()), "inline md link followed");
-        assert!(urls.contains(&"https://x.dev/docs/ref".to_string()), "autolink followed");
+        assert!(
+            urls.contains(&"https://x.dev/docs/guide".to_string()),
+            "inline md link followed"
+        );
+        assert!(
+            urls.contains(&"https://x.dev/docs/ref".to_string()),
+            "autolink followed"
+        );
     }
 
     /// A site that answers 304 when the request carries the matching etag,
@@ -858,7 +879,8 @@ mod tests {
                     Err(Error::not_modified(resource.url.as_str()))
                 }
                 Some((kind, body, etag)) => {
-                    self.bodies_served.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.bodies_served
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     Ok(Fetched {
                         meta: FetchMeta {
                             kind: *kind,
@@ -879,10 +901,19 @@ mod tests {
     async fn revalidated_pages_transfer_no_body_and_known_edges_keep_coverage() {
         let mut pages = HashMap::new();
         let h = ResourceKind::Html;
-        pages.insert("https://x.dev/docs".to_string(), (h, page(&["/docs/a"]), "\"r\""));
-        pages.insert("https://x.dev/docs/a".to_string(), (h, page(&["/docs/c"]), "\"a\""));
+        pages.insert(
+            "https://x.dev/docs".to_string(),
+            (h, page(&["/docs/a"]), "\"r\""),
+        );
+        pages.insert(
+            "https://x.dev/docs/a".to_string(),
+            (h, page(&["/docs/c"]), "\"a\""),
+        );
         pages.insert("https://x.dev/docs/c".to_string(), (h, page(&[]), "\"c\""));
-        let site = EtagSite { pages, bodies_served: std::sync::atomic::AtomicU32::new(0) };
+        let site = EtagSite {
+            pages,
+            bodies_served: std::sync::atomic::AtomicU32::new(0),
+        };
 
         let root_url = url::Url::parse("https://x.dev/docs").unwrap();
         let a_url = url::Url::parse("https://x.dev/docs/a").unwrap();
@@ -903,14 +934,29 @@ mod tests {
         let root = SourceRef::http("https://x.dev/docs").unwrap();
         let urls = crawl_urls(&source, &root).await;
         assert!(urls.is_empty(), "no page yielded: everything revalidated");
-        assert_eq!(source.fetcher.bodies_served.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            source
+                .fetcher
+                .bodies_served
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
 
         // Only the leaf changed: exactly one body transfers.
         let mut pages = HashMap::new();
-        pages.insert("https://x.dev/docs".to_string(), (h, page(&["/docs/a"]), "\"r\""));
-        pages.insert("https://x.dev/docs/a".to_string(), (h, page(&["/docs/c"]), "\"a\""));
+        pages.insert(
+            "https://x.dev/docs".to_string(),
+            (h, page(&["/docs/a"]), "\"r\""),
+        );
+        pages.insert(
+            "https://x.dev/docs/a".to_string(),
+            (h, page(&["/docs/c"]), "\"a\""),
+        );
         pages.insert("https://x.dev/docs/c".to_string(), (h, page(&[]), "\"c2\""));
-        let site = EtagSite { pages, bodies_served: std::sync::atomic::AtomicU32::new(0) };
+        let site = EtagSite {
+            pages,
+            bodies_served: std::sync::atomic::AtomicU32::new(0),
+        };
         let source = CrawlSource::new(site)
             .depth(2)
             .validators([
@@ -921,7 +967,13 @@ mod tests {
             .known_edges([(rk, vec![a_url]), (ak, vec![c_url])]);
         let urls = crawl_urls(&source, &root).await;
         assert_eq!(urls, vec!["https://x.dev/docs/c".to_string()]);
-        assert_eq!(source.fetcher.bodies_served.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(
+            source
+                .fetcher
+                .bodies_served
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
     }
 
     #[tokio::test]

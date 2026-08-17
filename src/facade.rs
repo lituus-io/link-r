@@ -220,7 +220,11 @@ pub struct LinkIndex {
 }
 
 impl LinkIndex {
-    fn from_builder(path: Option<PathBuf>, embedder: DefaultEmbedder, builder: IndexBuilder) -> Self {
+    fn from_builder(
+        path: Option<PathBuf>,
+        embedder: DefaultEmbedder,
+        builder: IndexBuilder,
+    ) -> Self {
         Self {
             path,
             embedder,
@@ -491,22 +495,43 @@ impl LinkIndex {
             let content_hash = xxh3_64(&bytes);
             if builder.is_unchanged(&resource.url, content_hash) {
                 report.unchanged += 1;
-                report.pages.push(page_outcome(&resource.url, PageChange::Unchanged, None));
+                report
+                    .pages
+                    .push(page_outcome(&resource.url, PageChange::Unchanged, None));
                 continue;
             }
             let descriptor = extractor.extract(&resource, &bytes)?;
             if descriptor.is_empty() {
                 report.skipped += 1;
-                report.pages.push(page_outcome(&resource.url, PageChange::Skipped, None));
+                report
+                    .pages
+                    .push(page_outcome(&resource.url, PageChange::Skipped, None));
                 continue;
             }
             pending.push((resource, descriptor, content_hash));
             if pending.len() == embed_batch {
-                flush_batch(builder, &*embedder, &mut pending, &mut buf, dim, pin, &mut report)
-                    .await?;
+                flush_batch(
+                    builder,
+                    &*embedder,
+                    &mut pending,
+                    &mut buf,
+                    dim,
+                    pin,
+                    &mut report,
+                )
+                .await?;
             }
         }
-        flush_batch(builder, &*embedder, &mut pending, &mut buf, dim, pin, &mut report).await?;
+        flush_batch(
+            builder,
+            &*embedder,
+            &mut pending,
+            &mut buf,
+            dim,
+            pin,
+            &mut report,
+        )
+        .await?;
 
         if report.added + report.updated > 0 {
             *cached = OnceLock::new();
@@ -598,7 +623,9 @@ impl LinkIndex {
                 Ok(RefreshFetch::NotModified) => {
                     builder.touch(&url, now);
                     report.unchanged += 1;
-                    report.pages.push(page_outcome(&url, PageChange::Unchanged, None));
+                    report
+                        .pages
+                        .push(page_outcome(&url, PageChange::Unchanged, None));
                 }
                 Ok(RefreshFetch::Changed { kind, etag, bytes }) => {
                     let content_hash = xxh3_64(&bytes);
@@ -610,7 +637,9 @@ impl LinkIndex {
                     if descriptor.is_empty() {
                         builder.touch(&url, now);
                         report.unchanged += 1;
-                        report.pages.push(page_outcome(&url, PageChange::Unchanged, None));
+                        report
+                            .pages
+                            .push(page_outcome(&url, PageChange::Unchanged, None));
                         continue;
                     }
                     // Defer embedding: changed pages are batched below so the
@@ -623,7 +652,9 @@ impl LinkIndex {
                     let pinned = pinned_keys.contains(&crate::url_key::UrlKey::from_url(&url));
                     if opts.evict_unreachable && !pinned && builder.remove(&url) {
                         report.removed += 1;
-                        report.pages.push(page_outcome(&url, PageChange::Removed, None));
+                        report
+                            .pages
+                            .push(page_outcome(&url, PageChange::Removed, None));
                     } else {
                         report.failed += 1;
                     }
@@ -637,21 +668,19 @@ impl LinkIndex {
         let mut buf = vec![0.0f32; DEFAULT_EMBED_BATCH * dim];
         while !pending_changed.is_empty() {
             let take = pending_changed.len().min(DEFAULT_EMBED_BATCH);
-            let batch: Vec<(Resource, Descriptor, u64)> =
-                pending_changed.drain(..take).collect();
-            let texts: Vec<&str> = batch.iter().map(|(_, d, _)| d.embed_text.as_str()).collect();
+            let batch: Vec<(Resource, Descriptor, u64)> = pending_changed.drain(..take).collect();
+            let texts: Vec<&str> = batch
+                .iter()
+                .map(|(_, d, _)| d.embed_text.as_str())
+                .collect();
             let out = &mut buf[..texts.len() * dim];
             self.embedder.embed_batch(&texts, out).await?;
             drop(texts);
             for (i, (resource, descriptor, content_hash)) in batch.into_iter().enumerate() {
                 let vector = out[i * dim..(i + 1) * dim].to_vec();
                 let outcome_meta = descriptor_outcome_meta(&descriptor);
-                let mut doc = descriptor.into_document(
-                    resource.url,
-                    resource.kind,
-                    content_hash,
-                    vector,
-                );
+                let mut doc =
+                    descriptor.into_document(resource.url, resource.kind, content_hash, vector);
                 doc.fetched_at_ms = now;
                 doc.etag = resource.etag;
                 let url = doc.url.clone();
@@ -662,10 +691,14 @@ impl LinkIndex {
                 if builder.upsert(doc)? == UpsertOutcome::Unchanged {
                     builder.touch(&url, now);
                     report.unchanged += 1;
-                    report.pages.push(page_outcome(&url, PageChange::Unchanged, None));
+                    report
+                        .pages
+                        .push(page_outcome(&url, PageChange::Unchanged, None));
                 } else {
                     report.refreshed += 1;
-                    report.pages.push(page_outcome(&url, PageChange::Updated, Some(outcome_meta)));
+                    report
+                        .pages
+                        .push(page_outcome(&url, PageChange::Updated, Some(outcome_meta)));
                 }
             }
         }
@@ -704,7 +737,10 @@ async fn flush_batch<E: Embedder>(
         return Ok(());
     }
     let now = now_ms();
-    let texts: Vec<&str> = pending.iter().map(|(_, d, _)| d.embed_text.as_str()).collect();
+    let texts: Vec<&str> = pending
+        .iter()
+        .map(|(_, d, _)| d.embed_text.as_str())
+        .collect();
     let out = &mut buf[..texts.len() * dim];
     embedder.embed_batch(&texts, out).await?;
     drop(texts);
@@ -712,8 +748,7 @@ async fn flush_batch<E: Embedder>(
     for (i, (resource, descriptor, content_hash)) in pending.drain(..).enumerate() {
         let vector = out[i * dim..(i + 1) * dim].to_vec();
         let outcome_meta = descriptor_outcome_meta(&descriptor);
-        let mut doc =
-            descriptor.into_document(resource.url, resource.kind, content_hash, vector);
+        let mut doc = descriptor.into_document(resource.url, resource.kind, content_hash, vector);
         doc.fetched_at_ms = now;
         doc.etag = resource.etag;
         doc.pinned = pin;
@@ -732,14 +767,20 @@ async fn flush_batch<E: Embedder>(
                 PageChange::Unchanged
             }
         };
-        report.pages.push(page_outcome(&url, change, Some(outcome_meta)));
+        report
+            .pages
+            .push(page_outcome(&url, change, Some(outcome_meta)));
     }
     Ok(())
 }
 
 /// (title, `(depth, heading)` pairs, keywords) captured before a descriptor is
 /// consumed. Missing levels fall back to position-derived depths.
-type OutcomeMeta = (Option<CompactString>, Vec<(u8, CompactString)>, Vec<CompactString>);
+type OutcomeMeta = (
+    Option<CompactString>,
+    Vec<(u8, CompactString)>,
+    Vec<CompactString>,
+);
 
 fn descriptor_outcome_meta(d: &Descriptor) -> OutcomeMeta {
     let headings = d
@@ -747,11 +788,19 @@ fn descriptor_outcome_meta(d: &Descriptor) -> OutcomeMeta {
         .iter()
         .enumerate()
         .map(|(i, h)| {
-            let level = d.heading_levels.get(i).copied().unwrap_or((i.min(2) + 1) as u8);
+            let level = d
+                .heading_levels
+                .get(i)
+                .copied()
+                .unwrap_or((i.min(2) + 1) as u8);
             (level, h.clone())
         })
         .collect();
-    (d.title.clone(), headings, d.keywords.iter().cloned().collect())
+    (
+        d.title.clone(),
+        headings,
+        d.keywords.iter().cloned().collect(),
+    )
 }
 
 fn page_outcome(url: &url::Url, change: PageChange, meta: Option<OutcomeMeta>) -> PageOutcome {
@@ -807,9 +856,9 @@ async fn conditional_fetch<F: Fetcher>(
             }
         }
         Err(Error::NotModified { .. }) => Ok(RefreshFetch::NotModified),
-        Err(Error::NotFound { .. } | Error::PermissionDenied { .. } | Error::Unauthenticated { .. }) => {
-            Err(RefreshError::Gone)
-        }
+        Err(
+            Error::NotFound { .. } | Error::PermissionDenied { .. } | Error::Unauthenticated { .. },
+        ) => Err(RefreshError::Gone),
         Err(_) => Err(RefreshError::Transient),
     };
     (resource.url, outcome)
@@ -1364,8 +1413,8 @@ mod tests {
         };
         let report = idx.refresh_with(&fetcher, opts).await.unwrap();
         assert_eq!(report.total(), 1, "only the listed URL was acted on");
-        let fetched = fetcher.fetched.lock().unwrap();
-        assert_eq!(&*fetched, &vec!["https://x.dev/two".to_string()]);
+        let requested = fetcher.fetched.lock().unwrap();
+        assert_eq!(&*requested, &vec!["https://x.dev/two".to_string()]);
     }
 
     #[tokio::test]
@@ -1389,7 +1438,7 @@ mod tests {
             .all(|d| d.meta.url_key == crate::url_key::UrlKey::parse(&d.meta.url).unwrap()));
     }
 
-    /// Regression: a refreshed body that is byte-identical but carries no ETag
+    /// Regression: a refreshed body that is byte-identical but carries no `ETag`
     /// used to leave `fetched_at_ms` untouched, so the page was re-downloaded in
     /// full on every refresh forever (and miscounted as `refreshed`).
     #[tokio::test]
@@ -1441,7 +1490,7 @@ mod tests {
         let opts = RefreshOptions {
             urls: None,
             ttl: Duration::from_secs(u64::from(u32::MAX)), // never stale for refetch
-            max_age: Some(Duration::from_millis(1)),   // but past the hard cap
+            max_age: Some(Duration::from_millis(1)),       // but past the hard cap
             evict_unreachable: true,
             concurrency: 4,
         };
@@ -1502,7 +1551,10 @@ mod tests {
         let index = crate::index::Index::open(&path).unwrap();
 
         // `related(a)` should surface b (direct target) and hub (co-parent).
-        let rel = index.related(UrlKey::from_url(&url::Url::parse("https://x.dev/a").unwrap()), 5);
+        let rel = index.related(
+            UrlKey::from_url(&url::Url::parse("https://x.dev/a").unwrap()),
+            5,
+        );
         let urls: Vec<&str> = rel.iter().map(|h| h.url).collect();
         assert!(urls.contains(&"https://x.dev/b"), "related: {urls:?}");
     }
@@ -1530,7 +1582,9 @@ mod tests {
         idx.materialize_builder().unwrap(); // ensure a builder, invalidate cache
         let resource = Resource::new(url::Url::parse(url).unwrap()).with_kind(ResourceKind::Text);
         let descriptor = AutoExtractor.extract(&resource, body.as_bytes()).unwrap();
-        let vector = embed_one(&idx.embedder, &descriptor.embed_text).await.unwrap();
+        let vector = embed_one(&idx.embedder, &descriptor.embed_text)
+            .await
+            .unwrap();
         let doc = descriptor.into_document(
             resource.url,
             resource.kind,

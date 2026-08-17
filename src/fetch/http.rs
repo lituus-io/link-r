@@ -310,7 +310,10 @@ mod tests {
 
     #[test]
     fn imf_fixdate_parses_known_instants() {
-        assert_eq!(parse_imf_fixdate_ms("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
+        assert_eq!(
+            parse_imf_fixdate_ms("Thu, 01 Jan 1970 00:00:00 GMT"),
+            Some(0)
+        );
         // RFC 9110's own example date.
         assert_eq!(
             parse_imf_fixdate_ms("Sun, 06 Nov 1994 08:49:37 GMT"),
@@ -352,7 +355,9 @@ mod tests {
         assert_eq!(fetcher.user_agent, "my-bot/1.0");
     }
 
-    fn chunks(parts: &[&[u8]]) -> impl futures::Stream<Item = std::result::Result<bytes::Bytes, std::convert::Infallible>>
+    fn chunks(
+        parts: &[&[u8]],
+    ) -> impl futures::Stream<Item = std::result::Result<bytes::Bytes, std::convert::Infallible>>
     {
         let owned: Vec<_> = parts
             .iter()
@@ -364,9 +369,15 @@ mod tests {
     #[tokio::test]
     async fn collect_capped_under_cap_passes() {
         let started = Instant::now();
-        let out = collect_capped(chunks(&[b"hello ", b"world"]), None, Some(1024), 200, started)
-            .await
-            .unwrap();
+        let out = collect_capped(
+            chunks(&[b"hello ", b"world"]),
+            None,
+            Some(1024),
+            200,
+            started,
+        )
+        .await
+        .unwrap();
         assert_eq!(&out[..], b"hello world");
     }
 
@@ -374,9 +385,15 @@ mod tests {
     async fn collect_capped_over_cap_errors_without_length_hint() {
         // The chunked-bypass regression: no length hint, cap exceeded mid-stream.
         let started = Instant::now();
-        let err = collect_capped(chunks(&[b"aaaa", b"bbbb", b"cccc"]), None, Some(8), 200, started)
-            .await
-            .unwrap_err();
+        let err = collect_capped(
+            chunks(&[b"aaaa", b"bbbb", b"cccc"]),
+            None,
+            Some(8),
+            200,
+            started,
+        )
+        .await
+        .unwrap_err();
         match err {
             Error::Http { status, .. } => assert_eq!(status, 200),
             other => panic!("expected Http cap error, got {other:?}"),

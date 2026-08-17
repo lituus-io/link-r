@@ -39,7 +39,11 @@ impl Fetcher for MockSite {
         = Ready<link_r::Result<Fetched<'a>>>
     where
         Self: 'a;
-    fn fetch<'a>(&'a self, resource: &'a Resource, _opts: FetchOptions<'a>) -> Self::FetchFuture<'a> {
+    fn fetch<'a>(
+        &'a self,
+        resource: &'a Resource,
+        _opts: FetchOptions<'a>,
+    ) -> Self::FetchFuture<'a> {
         let key = link_r::canonicalize(&resource.url);
         let result = match self.pages.get(&key) {
             Some(body) => Ok(Fetched {
@@ -242,7 +246,8 @@ fn bench_facade(c: &mut Criterion) {
             .depth(30)
             .scope(CrawlScope::SameHost)
             .max_pages(n);
-        rt.block_on(idx.ingest_from(&source, &root, 64, false)).unwrap();
+        rt.block_on(idx.ingest_from(&source, &root, 64, false))
+            .unwrap();
 
         let rss = rss_kib();
         let start = Instant::now();
@@ -289,7 +294,8 @@ fn bench_rss_growth(_c: &mut Criterion) {
             .depth(30)
             .scope(CrawlScope::SameHost)
             .max_pages(n);
-        rt.block_on(idx.ingest_from(&source, &root, 64, false)).unwrap();
+        rt.block_on(idx.ingest_from(&source, &root, 64, false))
+            .unwrap();
         black_box(idx.len());
         points.push((n as f64, rss_kib() as f64));
     }
@@ -301,5 +307,11 @@ fn bench_rss_growth(_c: &mut Criterion) {
     );
 }
 
-criterion_group!(benches, bench_crawl, bench_kernels, bench_facade, bench_rss_growth);
+criterion_group!(
+    benches,
+    bench_crawl,
+    bench_kernels,
+    bench_facade,
+    bench_rss_growth
+);
 criterion_main!(benches);

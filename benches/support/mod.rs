@@ -65,7 +65,14 @@ impl Rng {
 }
 
 /// Emit one `AUTORESEARCH` telemetry line in the house format.
-pub fn autoresearch(bench: &str, name: &str, scale: usize, metric: &str, value: f64, rss_before: u64) {
+pub fn autoresearch(
+    bench: &str,
+    name: &str,
+    scale: usize,
+    metric: &str,
+    value: f64,
+    rss_before: u64,
+) {
     let rss = rss_kib();
     println!(
         "AUTORESEARCH {bench} bench={name} scale={scale} {metric}={value:.2} process_rss_kib={rss} rss_delta_kib={}",

@@ -67,8 +67,12 @@ async fn authorization_is_stripped_on_cross_host_redirect() {
     let fetched = fetcher.fetch(&resource, FetchOptions::default()).await;
     assert!(fetched.is_ok(), "redirect should be followed: {fetched:?}");
 
-    let a_had_auth = rx_a.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
-    let b_had_auth = rx_b.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    let a_had_auth = rx_a
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let b_had_auth = rx_b
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
     assert!(a_had_auth, "the original host must receive the token");
     assert!(
         !b_had_auth,

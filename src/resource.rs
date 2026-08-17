@@ -285,7 +285,10 @@ mod tests {
     #[test]
     fn linkable_and_indexable_flags() {
         assert!(ResourceKind::Html.is_linkable());
-        assert!(ResourceKind::Markdown.is_linkable(), "markdown links are followed");
+        assert!(
+            ResourceKind::Markdown.is_linkable(),
+            "markdown links are followed"
+        );
         assert!(!ResourceKind::Code.is_linkable());
         assert!(ResourceKind::Markdown.is_indexable());
         assert!(!ResourceKind::Pdf.is_indexable());

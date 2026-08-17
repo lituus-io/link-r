@@ -438,7 +438,7 @@ mod tests {
         assert!(b.remove(&Url::parse("https://x.dev/b").unwrap()));
         assert_eq!(b.len(), 2);
         assert!(!b.remove(&Url::parse("https://x.dev/b").unwrap())); // gone
-        // Surviving docs still searchable under their URLs, dense rows intact.
+                                                                     // Surviving docs still searchable under their URLs, dense rows intact.
         let idx = b.build();
         assert_eq!(idx.len(), 2);
         assert!(idx.contains(UrlKey::from_url(&Url::parse("https://x.dev/a").unwrap())));
