@@ -101,6 +101,10 @@ fn token_is_never_in_debug_output() {
     assert!(!format!("{fetcher:?}").contains(secret));
 }
 
+// The other tests in this file need only `http`; this one drives the facade,
+// which exists only under `crawl`. Gating the single test rather than the whole
+// file keeps the credential-leak coverage alive for narrower feature sets.
+#[cfg(feature = "crawl")]
 #[tokio::test]
 async fn persisted_index_never_contains_url_userinfo() {
     // A crawl URL carrying `user:password@` must have its credentials dropped by

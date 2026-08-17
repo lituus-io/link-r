@@ -3,7 +3,25 @@
 #
 # Nightly is required by `#![feature(impl_trait_in_assoc_type)]` (the GAT+TAIT
 # async traits).
+#
+# The channel is pinned to an exact date, not bare "nightly". CI runs with
+# `-D warnings`, so an undated pin means a compiler update can break CI
+# overnight with no commit to blame -- which has already happened once in this
+# pair of crates, when a newer nightly promoted two clippy lints to
+# warn-by-default.
+#
+# nightly-2026-06-10 resolves to rustc 1.98.0-nightly (beae78130 2026-06-09).
+# Note the off-by-one: rustup's channel date is the publish date, one day after
+# the commit date in the version string. Verify with:
+#   rustup run nightly-2026-06-10 rustc --version
+#
+# graph-r pins the same date: its `bridge` feature compiles this crate, so the
+# two must agree.
+#
+# Bumping this pin is a deliberate commit: install the new date, run
+# `cargo fmt --check`, `cargo clippy --all-targets` and `cargo test` before
+# changing the line below.
 
 [toolchain]
-channel = "nightly"
+channel = "nightly-2026-06-10"
 components = ["rustfmt", "clippy"]

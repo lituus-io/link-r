@@ -81,9 +81,19 @@ tempfile = "3.12"
 name = "index_bench"
 harness = false
 
+# The crawl bench and the GitHub example both reach for CrawlSource/LinkIndex
+# and the HTML link scanner, which only exist under `crawl`. Without
+# `required-features` they are compiled for every feature set, so
+# `cargo check --no-default-features --all-targets` fails on the *targets*
+# even though the library itself builds cleanly for every combination.
 [[bench]]
 name = "crawl_bench"
 harness = false
+required-features = ["crawl"]
+
+[[example]]
+name = "crawl_github_docs"
+required-features = ["crawl"]
 
 [workspace]
 # `bindings/python` (PyO3 cdylib) joins as a member in Phase 6.
