@@ -1,0 +1,27 @@
+# Build artifacts
+/target
+**/target/
+
+# Generated index files
+*.lnkr
+
+# Fuzzing corpus and crash artifacts (regressions are covered by unit tests)
+/fuzz/corpus/
+/fuzz/artifacts/
+
+# Criterion output (baselines under benches/baselines/ ARE tracked)
+/target/criterion/
+
+# Python build/venv
+*.so
+dist/
+__pycache__/
+.pytest_cache/
+.venv/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# fastembed/ONNX model cache
+.fastembed_cache/

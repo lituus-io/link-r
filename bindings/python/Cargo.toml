@@ -1,0 +1,36 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+
+[package]
+name = "link-r-python"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "LicenseRef-Proprietary"
+description = "Python bindings for link-r (PyO3)."
+publish = false
+
+[lib]
+name = "link_r"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "time"] }
+# Aliased to `linkr` because this crate's own lib is named `link_r` (the Python
+# module). Hash embedder by default (hermetic, no model download); the production
+# wheel enables `onnx` (bge-small). rustls only — no openssl.
+linkr = { path = "../..", package = "link-r", default-features = false, features = ["crawl", "fs"] }
+
+[features]
+# Build the wheel with semantic embeddings: `maturin build --features onnx`.
+onnx = ["linkr/onnx"]
+
+# Detach from the parent crate's build so the main `cargo test` never needs Python.
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

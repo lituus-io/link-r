@@ -1,0 +1,30 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "link-r"
+version = "0.1.0"
+description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, build a hybrid index, resolve queries to ranked links."
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+authors = [{ name = "lituus-io", email = "spicyzhug@gmail.com" }]
+keywords = ["search", "index", "crawler", "embeddings", "bm25"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Indexing",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.maturin]
+module-name = "link_r"
+# Type stub shipped alongside the compiled module.
+include = ["link_r.pyi"]
+# Production wheels add semantic embeddings:
+#   maturin build --release --features onnx

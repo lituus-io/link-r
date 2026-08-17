@@ -1,0 +1,102 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+
+[package]
+name = "link-r"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "LicenseRef-Proprietary"
+description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, distill keywords, build a zero-copy hybrid index, resolve queries to ranked links."
+repository = "https://github.com/lituus-io/link-r"
+authors = ["lituus-io <spicyzhug@gmail.com>"]
+publish = false
+readme = "README.md"
+keywords = ["search", "index", "crawler", "embeddings", "bm25"]
+categories = ["text-processing", "web-programming", "caching"]
+
+[features]
+# The default stack: crawl an HTTPS parent, extract HTML/Markdown, embed with the
+# deterministic hash embedder, persist a zero-copy mmap index. Hermetic & offline.
+default = ["hash", "markdown", "html", "crawl", "fs"]
+
+# --- embedders ---
+hash = []                                          # deterministic, zero-dep (always recommended as fallback)
+onnx = ["dep:fastembed"]                            # production: bge-small-en-v1.5
+
+# --- extractors ---
+markdown = []                                       # Markdown + code, zero-dep
+html = ["dep:scraper", "dep:memchr"]                # HTML content + fast <a href> link scanner
+
+# --- sources / fetch ---
+http = ["dep:reqwest"]                              # HttpFetcher (rustls)
+crawl = ["http", "html", "dep:async-stream", "dep:futures-timer"]  # recursive depth crawler
+fs = ["dep:walkdir"]                                # local filesystem source
+
+# --- auth ---
+oauth = ["http", "dep:arc-swap"]                    # expiring-token refresh provider
+robots = ["crawl", "dep:texting_robots"]            # honor robots.txt (off by default)
+
+# --- performance / scale ---
+quant = []                                          # int8 + binary quantization, two-tier rerank
+parallel = ["dep:rayon"]                            # rayon-parallel build
+
+full = ["hash", "onnx", "markdown", "html", "http", "crawl", "fs",
+        "oauth", "robots", "quant", "parallel"]
+
+[dependencies]
+# --- always-on core (tiny, offline) ---
+bytes = "1.7"
+smallvec = { version = "1.13", features = ["union", "const_generics"] }
+compact_str = "0.8"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+thiserror = "1.0"
+futures = "0.3"
+url = "2.5"
+zstd = "0.13"
+secrecy = "0.10"
+roaring = "0.10"
+memmap2 = "0.9"          # the index always mmaps; only the *fs source* is feature-gated
+
+# --- feature-gated ---
+reqwest = { version = "0.12", default-features = false, features = ["stream", "http2", "rustls-tls", "gzip"], optional = true }
+async-stream = { version = "0.3", optional = true }
+futures-timer = { version = "3", optional = true }
+scraper = { version = "0.20", optional = true }
+memchr = { version = "2.7", optional = true }
+walkdir = { version = "2.5", optional = true }
+# rustls (not native-tls/openssl) to match the house TLS policy.
+fastembed = { version = "4", optional = true, default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }
+arc-swap = { version = "1.7", optional = true }
+rayon = { version = "1.10", optional = true }
+texting_robots = { version = "0.2", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "test-util"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
+tempfile = "3.12"
+
+[[bench]]
+name = "index_bench"
+harness = false
+
+[[bench]]
+name = "crawl_bench"
+harness = false
+
+[workspace]
+# `bindings/python` (PyO3 cdylib) joins as a member in Phase 6.
+members = []
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+debug = true

@@ -1,0 +1,46 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+
+[package]
+name = "link-r-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.link-r]
+path = ".."
+default-features = false
+features = ["html"]
+
+# Detach from the parent crate's workspace.
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_index_loader"
+path = "fuzz_targets/fuzz_index_loader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_url_canonicalize"
+path = "fuzz_targets/fuzz_url_canonicalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_html_links"
+path = "fuzz_targets/fuzz_html_links.rs"
+test = false
+doc = false
+bench = false
