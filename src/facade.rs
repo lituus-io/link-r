@@ -457,12 +457,13 @@ impl LinkIndex {
         Ok(self.builder.as_mut().expect("just materialized"))
     }
 
-    /// Drive an update from any [`Source`] (the hermetic seam behind `update`),
-    /// micro-batching the embedder across pages.
+    /// Drive an update from any [`Source`] — the seam behind
+    /// [`LinkIndex::update`], and the entry point for callers that bring their
+    /// own source (a filesystem corpus, a mock site in tests, a custom
+    /// fetcher). Micro-batches the embedder across pages.
     ///
     /// # Errors
     /// Propagates fetch/extract/embed failures.
-    #[doc(hidden)]
     pub async fn ingest_from<S: Source>(
         &mut self,
         source: &S,
@@ -539,14 +540,14 @@ impl LinkIndex {
         Ok(report)
     }
 
-    /// Refresh already-indexed links against any [`Fetcher`] (the hermetic seam
-    /// behind `refresh`). Conditionally re-fetches stale links, applying the
+    /// Refresh already-indexed links against any [`Fetcher`] — the seam behind
+    /// [`LinkIndex::refresh`], and the entry point for callers that bring their
+    /// own fetcher. Conditionally re-fetches stale links, applying the
     /// retention policy.
     ///
     /// # Errors
     /// Propagates extract/embed failures; per-link fetch failures are counted, not
     /// propagated.
-    #[doc(hidden)]
     #[allow(clippy::too_many_lines)] // one linear pass over planned work
     pub async fn refresh_with<F: Fetcher>(
         &mut self,
@@ -923,6 +924,13 @@ pub struct UpdateBuilder<'a> {
     #[cfg(feature = "robots")]
     respect_robots: bool,
     auth: Box<dyn DynAuthProvider>,
+    /// Conditional-crawl seeds supplied by the caller, merged with (and
+    /// superseded by) whatever the in-memory index already knows. This is how a
+    /// persistent backend that has absorbed and *discarded* an index hands its
+    /// stored `ETag`s and edges back to a fresh crawl, so revalidation stays free
+    /// across process restarts.
+    extra_validators: Vec<(crate::url_key::UrlKey, CompactString)>,
+    extra_known_edges: Vec<(crate::url_key::UrlKey, Vec<url::Url>)>,
 }
 
 impl std::fmt::Debug for UpdateBuilder<'_> {
@@ -955,6 +963,8 @@ impl<'a> UpdateBuilder<'a> {
             #[cfg(feature = "robots")]
             respect_robots: false,
             auth: Box::new(AnonymousAuth),
+            extra_validators: Vec::new(),
+            extra_known_edges: Vec::new(),
         }
     }
 
@@ -1046,6 +1056,39 @@ impl<'a> UpdateBuilder<'a> {
         self
     }
 
+    /// Supply known entity tags for conditional revalidation, keyed by
+    /// canonical URL. Each becomes an `If-None-Match` on that page's fetch, so
+    /// an unchanged page answers 304 and transfers no body.
+    ///
+    /// Seeds the index does not already know. The in-memory index's own `ETag`s
+    /// are always used and win on conflict — within a session the index is
+    /// fresher than any external record. The point of this method is the
+    /// *stateless* case: a persistent backend absorbed a previous crawl,
+    /// discarded the index, and now hands the stored validators back so a
+    /// re-crawl after restart is as cheap as one within a session.
+    #[must_use]
+    pub fn validators(
+        mut self,
+        entries: impl IntoIterator<Item = (crate::url_key::UrlKey, CompactString)>,
+    ) -> Self {
+        self.extra_validators.extend(entries);
+        self
+    }
+
+    /// Supply previously known outbound links, keyed by canonical URL. When a
+    /// page revalidates as unchanged (304) there is no body to parse links
+    /// from; these keep the crawl frontier alive through it, so coverage never
+    /// shrinks. Same precedence as [`UpdateBuilder::validators`]: the index's
+    /// own edges win on conflict.
+    #[must_use]
+    pub fn known_edges(
+        mut self,
+        entries: impl IntoIterator<Item = (crate::url_key::UrlKey, Vec<url::Url>)>,
+    ) -> Self {
+        self.extra_known_edges.extend(entries);
+        self
+    }
+
     /// Authenticate with a bearer token (e.g. a GitHub PAT) for private sources.
     /// The token is scoped to the crawl root's host, so it is never sent to a
     /// different host reached via an in-scope link.
@@ -1084,8 +1127,11 @@ impl<'a> UpdateBuilder<'a> {
             let docs = builder.documents();
             let by_key: std::collections::HashMap<crate::url_key::UrlKey, &str> =
                 docs.iter().map(|d| (d.url_key, d.url.as_str())).collect();
-            let mut validators = Vec::new();
-            let mut known_edges = Vec::new();
+            // Caller-supplied seeds first: CrawlSource collects these into
+            // maps, so the index-derived entries appended below overwrite on
+            // conflict — within a session the index is the fresher source.
+            let mut validators = self.extra_validators;
+            let mut known_edges = self.extra_known_edges;
             for (d, edges) in docs.iter().zip(builder.edge_lists()) {
                 if let Some(etag) = &d.etag {
                     validators.push((d.url_key, etag.clone()));
@@ -1130,6 +1176,16 @@ impl<'a> UpdateBuilder<'a> {
             .ingest_from(&source, &root, self.embed_batch, self.pin)
             .await?;
         report.failed = source.failed_count() as usize;
+        // A 304 transfers no body and yields no page, so revalidated pages
+        // never reach ingest_from — fold them into the report here or the
+        // caller (and any freshness tracker behind it) never learns the check
+        // happened and the page's revalidation interval can never grow.
+        for url in source.take_revalidated() {
+            report.unchanged += 1;
+            report
+                .pages
+                .push(page_outcome(&url, PageChange::Unchanged, None));
+        }
         Ok(report)
     }
 }

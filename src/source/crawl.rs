@@ -185,6 +185,12 @@ pub struct CrawlSource<F: Fetcher> {
     /// Child pages that failed after retries during the last crawl (root
     /// failures abort instead). Readable after the stream completes.
     failed: std::sync::atomic::AtomicU32,
+    /// Pages revalidated as unchanged (HTTP 304) during the last crawl. A 304
+    /// transfers no body, so these pages never enter the page stream — without
+    /// this record they would be invisible to the caller, and a consumer
+    /// tracking freshness could never learn that the check happened.
+    /// A `Mutex`, not a `RefCell`: the stream must stay `Send`.
+    revalidated: std::sync::Mutex<Vec<Url>>,
 }
 
 impl<F: Fetcher> CrawlSource<F> {
@@ -195,6 +201,7 @@ impl<F: Fetcher> CrawlSource<F> {
             fetcher,
             config: CrawlConfig::default(),
             failed: std::sync::atomic::AtomicU32::new(0),
+            revalidated: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -205,6 +212,7 @@ impl<F: Fetcher> CrawlSource<F> {
             fetcher,
             config,
             failed: std::sync::atomic::AtomicU32::new(0),
+            revalidated: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -306,6 +314,15 @@ impl<F: Fetcher> CrawlSource<F> {
     #[must_use]
     pub fn failed_count(&self) -> u32 {
         self.failed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Drain the pages revalidated as unchanged (HTTP 304) during the most
+    /// recent crawl. They transferred no body and yielded no [`Page`], so this
+    /// is the only place their revalidation is visible — a freshness tracker
+    /// consumes it to record "checked, unchanged" against each URL.
+    #[must_use]
+    pub fn take_revalidated(&self) -> Vec<Url> {
+        std::mem::take(&mut self.revalidated.lock().expect("revalidated lock poisoned"))
     }
 
     /// Read-only view of the configuration.
@@ -594,6 +611,10 @@ impl<F: Fetcher> Source for CrawlSource<F> {
             let mut pacer = Pacer::new();
             let mut in_flight = FuturesUnordered::new();
             let mut successes = 0usize;
+            // Per-crawl records: reset here so "most recent crawl" stays true
+            // when one source runs discover() more than once.
+            self.failed.store(0, std::sync::atomic::Ordering::Relaxed);
+            self.revalidated.lock().expect("revalidated lock poisoned").clear();
 
             #[cfg(feature = "robots")]
             let mut robots = RobotsCache::new(
@@ -656,9 +677,15 @@ impl<F: Fetcher> Source for CrawlSource<F> {
                     Err(Error::NotModified { .. }) => {
                         // Revalidated 304: no body transferred, nothing to
                         // re-index — but the page's previously indexed children
-                        // keep feeding the frontier so coverage never shrinks.
+                        // keep feeding the frontier so coverage never shrinks,
+                        // and the check itself is recorded for freshness
+                        // consumers (it is invisible in the page stream).
                         let key = UrlKey::from_url(&req_url);
                         visited.insert(key);
+                        self.revalidated
+                            .lock()
+                            .expect("revalidated lock poisoned")
+                            .push(req_url.clone());
                         if depth < cfg.max_depth {
                             if let Some(children) = cfg.known_edges.get(&key) {
                                 for child in children {
@@ -973,6 +1000,11 @@ mod tests {
                 .bodies_served
                 .load(std::sync::atomic::Ordering::Relaxed),
             1
+        );
+        assert_eq!(
+            source.take_revalidated().len(),
+            2,
+            "root and a revalidated; c changed"
         );
     }
 
