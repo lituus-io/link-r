@@ -109,6 +109,16 @@ jobs:
     name: Python bindings
     needs: fmt
     runs-on: ubuntu-latest
+    env:
+      # The workflow-level `-D warnings` is dropped for this job only. PyO3
+      # 0.22's `create_exception!` expands to a `cfg(feature = "gil-refs")`
+      # check that current rustc reports as an unexpected cfg value, so the
+      # binding cannot build under the flag through no fault of this crate.
+      # The real fix is the PyO3 bump (which also brings abi3), and that lands
+      # with the binding work rather than being rushed in as a CI patch. Until
+      # then the binding is still built and its tests still run -- only the
+      # deny-warnings escalation is lifted.
+      RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
       - run: rustup show

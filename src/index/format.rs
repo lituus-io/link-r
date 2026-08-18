@@ -40,7 +40,8 @@ pub mod flags {
     /// (`fetched_at_ms`, `pinned`, `etag`). Files written before this feature leave
     /// it clear and decode those columns as defaults (stale, unpinned, no etag).
     pub const META_FRESHNESS: u16 = 1 << 1;
-    /// An [`SectionKind::Edges`] section is present (the persisted link graph).
+    /// An [`Edges`](super::SectionKind::Edges) section is present (the
+    /// persisted link graph).
     pub const LINK_GRAPH: u16 = 1 << 2;
 }
 

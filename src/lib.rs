@@ -17,8 +17,8 @@
 //! - **Static dispatch**: async traits use GATs (no `Box<dyn Future>`); runtime
 //!   variant selection uses enum-dispatch, not `dyn`.
 //! - **Self-contained**: no server, no sidecar database; the production embedder
-//!   ([`OnnxEmbedder`](embed::OnnxEmbedder), feature `onnx`) and a deterministic
-//!   [`HashEmbedder`](embed::HashEmbedder) fallback both run in-process.
+//!   (`OnnxEmbedder`, feature `onnx`) and a deterministic
+//!   [`HashEmbedder`] fallback both run in-process.
 //!
 //! # Dead-simple API
 //!
@@ -36,7 +36,16 @@
 //! // Maintain the knowledge base: re-validate links older than a day, evict dead ones.
 //! idx.refresh().ttl(std::time::Duration::from_secs(86_400)).run().await?;
 //! ```
-#![feature(impl_trait_in_assoc_type)] // GAT TAIT for the async Source/Fetcher/Auth traits
+// GAT TAIT for the async Source/Fetcher/Auth traits. Only the impls need it --
+// source/crawl.rs, source/fs.rs, fetch/http.rs and auth/oauth.rs -- so the
+// attribute is conditional: declared unconditionally it trips `unused_features`
+// under -D warnings in a build where none of them is compiled. All four are
+// listed rather than relying on `crawl`/`oauth` implying `http`, so a later
+// change to the feature graph cannot silently drop the declaration.
+#![cfg_attr(
+    any(feature = "crawl", feature = "fs", feature = "http", feature = "oauth"),
+    feature(impl_trait_in_assoc_type)
+)]
 #![deny(unsafe_code)] // `deny`, not `forbid`, so the single `index::mmap` island can locally override.
 #![deny(
     missing_docs,

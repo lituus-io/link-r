@@ -5,7 +5,7 @@
 //!
 //! [`Fetcher`] is a GAT async trait so the auth refresh future flows through
 //! unboxed. The trait itself is dependency-free (so the crawler can be tested with
-//! a mock); the concrete [`HttpFetcher`](http::HttpFetcher) (feature `http`) is
+//! a mock); the concrete [`HttpFetcher`] (feature `http`) is
 //! gated. Filesystem reads live in the `fs` source, which reads files directly.
 
 #[cfg(feature = "http")]

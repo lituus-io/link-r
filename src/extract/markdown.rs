@@ -4,7 +4,7 @@
 //! Zero-dependency extractors for Markdown, code, and plain text.
 //!
 //! Deterministic and dependency-free: front-matter / ATX headings give the title,
-//! the body feeds the shared [`distill`](super::distill) pass. The tokenizer
+//! the body feeds the shared [`distill`] pass. The tokenizer
 //! ignores markup punctuation, so we keep the raw body rather than rendering it.
 
 use crate::error::Result;

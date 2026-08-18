@@ -5,8 +5,8 @@
 //!
 //! A [`Source`] streams already-fetched [`Page`]s (the crawler must fetch a page
 //! to find its links, so discovery and content-fetch are fused — no double fetch).
-//! The primary source is the recursive [`CrawlSource`](crawl::CrawlSource); a
-//! local-directory [`FsSource`](fs::FsSource) serves offline/test use.
+//! The primary source is the recursive [`CrawlSource`]; a
+//! local-directory [`FsSource`] serves offline/test use.
 
 #[cfg(feature = "crawl")]
 pub mod crawl;

@@ -301,13 +301,25 @@ impl IndexBuilder {
         changed
     }
 
-    /// Read-only view of the document metadata (for TTL/refresh planning).
-    #[must_use]
     /// Per-document outbound edges, parallel to [`IndexBuilder::documents`].
+    ///
+    /// Only the facade consumes this, to plan a conditional re-crawl from the
+    /// links already known, so it is gated on the feature that compiles the
+    /// facade. Without that gate it is dead code under `--no-default-features`
+    /// and `-D warnings` rejects the build. No test calls this one, so the gate
+    /// stays narrow; [`IndexBuilder::documents`] additionally allows `test`.
+    #[cfg(feature = "crawl")]
+    #[must_use]
     pub(crate) fn edge_lists(&self) -> &[Vec<UrlKey>] {
         &self.edges
     }
 
+    /// Read-only view of the document metadata (for TTL/refresh planning).
+    ///
+    /// Gated for the same reason as [`IndexBuilder::edge_lists`]: the facade is
+    /// its only caller outside this module's tests.
+    #[cfg(any(feature = "crawl", test))]
+    #[must_use]
     pub(crate) fn documents(&self) -> &[DocMeta] {
         &self.meta
     }

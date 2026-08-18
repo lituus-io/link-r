@@ -20,8 +20,8 @@
 //! ```
 //!
 //! Defaults are wired so the common case needs no configuration: a path-prefix
-//! crawl, [`AnonymousAuth`](crate::auth::AnonymousAuth), [`AutoExtractor`], and the
-//! best embedder compiled in — [`OnnxEmbedder`](crate::embed::OnnxEmbedder)
+//! crawl, [`AnonymousAuth`], [`AutoExtractor`], and the
+//! best embedder compiled in — `OnnxEmbedder`
 //! (`bge-small`) when the `onnx` feature is on, else the deterministic
 //! [`HashEmbedder`](crate::embed::HashEmbedder). For private sources, inject auth
 //! with [`UpdateBuilder::token`] or [`UpdateBuilder::auth`].
