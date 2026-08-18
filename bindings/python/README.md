@@ -1,5 +1,8 @@
 # link-r
 
+`pip install uu-link-r` → `import link_r` (Python ≥ 3.12, one `abi3` wheel per
+platform).
+
 A tiny, embeddable crawl-and-resolve link index. Give it a parent URL: it
 crawls sublinks to a configurable depth, distills keywords and topics from
 each page, and builds a compact hybrid index (dense embeddings + BM25 +
