@@ -15,11 +15,19 @@ name = "link_r"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+# abi3-py312 builds against the stable ABI, so one wheel per platform serves
+# every Python from 3.12 up instead of one wheel per interpreter version. That
+# keeps the release matrix small enough to stay legible.
+#
+# 0.29 rather than 0.22: the older release expands `create_exception!` to a
+# `cfg(feature = "gil-refs")` check that current rustc reports as an unexpected
+# cfg value, so the crate could not build under `-D warnings` at all.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"] }
 tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "time"] }
 # Aliased to `linkr` because this crate's own lib is named `link_r` (the Python
-# module). Hash embedder by default (hermetic, no model download); the production
-# wheel enables `onnx` (bge-small). rustls only — no openssl.
+# module). The deterministic hash embedder is always compiled — it is the
+# fallback the crate cannot work without — so it needs no feature here; the
+# production wheel adds `onnx` (bge-small). rustls only — no openssl.
 linkr = { path = "../..", package = "link-r", default-features = false, features = ["crawl", "fs"] }
 
 [features]

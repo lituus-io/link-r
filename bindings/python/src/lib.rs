@@ -4,9 +4,13 @@
 //! Python bindings for `link-r` (PyO3 + maturin).
 //!
 //! A synchronous, dead-simple surface: the binding owns a private Tokio runtime
-//! and `block_on`s the async crawl inside [`PyLinkIndex::update`], releasing the
-//! GIL while it runs so Python stays responsive. The same three verbs as the Rust
-//! facade: `open_or_create`/`open`/`in_memory`, `update`, `search`, `save`.
+//! and `block_on`s the async crawl inside [`PyLinkIndex::update`], detaching from
+//! the interpreter while it runs so other Python threads keep going. The same
+//! three verbs as the Rust facade: `open_or_create`/`open`/`in_memory`, `update`,
+//! `search`, `save`.
+//!
+//! The wheel is built against the stable ABI (`abi3-py312`), so one artifact per
+//! platform serves every Python from 3.12 up.
 
 use linkr::facade::{LinkIndex, RefreshReport, SearchResult, UpdateReport};
 use linkr::source::CrawlScope;
@@ -35,7 +39,7 @@ fn build_filter(path_prefix: Option<String>, tag: Option<String>) -> Filter {
 }
 
 /// A single search result.
-#[pyclass(name = "Hit", frozen)]
+#[pyclass(name = "Hit", frozen, skip_from_py_object)]
 #[derive(Clone)]
 struct PyHit {
     #[pyo3(get)]
@@ -73,7 +77,7 @@ impl From<SearchResult> for PyHit {
 }
 
 /// What an update did.
-#[pyclass(name = "UpdateReport", frozen)]
+#[pyclass(name = "UpdateReport", frozen, skip_from_py_object)]
 #[derive(Clone, Copy)]
 struct PyUpdateReport {
     #[pyo3(get)]
@@ -116,7 +120,7 @@ impl From<UpdateReport> for PyUpdateReport {
 }
 
 /// What a TTL refresh did.
-#[pyclass(name = "RefreshReport", frozen)]
+#[pyclass(name = "RefreshReport", frozen, skip_from_py_object)]
 #[derive(Clone, Copy)]
 struct PyRefreshReport {
     #[pyo3(get)]
@@ -164,7 +168,13 @@ fn parse_scope(scope: Option<&str>) -> CrawlScope {
 }
 
 /// A crawl-and-resolve link index.
-#[pyclass(name = "LinkIndex", unsendable)]
+///
+/// Deliberately NOT `unsendable`: that marker makes PyO3 raise if the object is
+/// touched from a thread other than the one that created it, which breaks every
+/// caller that dispatches through a thread pool -- `asyncio.to_thread` being the
+/// usual one. Both `LinkIndex` and the tokio runtime are `Send`, so the
+/// restriction bought nothing and cost correctness.
+#[pyclass(name = "LinkIndex")]
 struct PyLinkIndex {
     inner: LinkIndex,
     rt: tokio::runtime::Runtime,
@@ -207,7 +217,7 @@ impl PyLinkIndex {
     }
 
     /// Crawl `url` to `depth` and index the pages (deduplicated by URL). Blocks
-    /// until the crawl completes; the GIL is released while it runs.
+    /// until the crawl completes, detached from the interpreter throughout.
     #[pyo3(signature = (url, depth=2, max_pages=1000, concurrency=8, embed_batch=64, token=None, scope=None, min_delay_ms=0, path_contains=None, extensions=None, index_path_contains=None, pin=false))]
     #[allow(clippy::too_many_arguments)] // a flat keyword surface is the point for Python
     fn update(
@@ -227,7 +237,7 @@ impl PyLinkIndex {
         pin: bool,
     ) -> PyResult<PyUpdateReport> {
         let crawl_scope = parse_scope(scope.as_deref());
-        let report = py.allow_threads(|| {
+        let report = py.detach(|| {
             self.rt.block_on(async {
                 let mut update = self
                     .inner
@@ -261,8 +271,10 @@ impl PyLinkIndex {
 
     /// Re-validate already-indexed links older than `ttl_secs`: unchanged pages are
     /// re-timestamped, changed pages re-indexed, dead pages evicted. `max_age_secs`
-    /// hard-evicts unpinned links older than it without fetching. Blocks; GIL released.
+    /// hard-evicts unpinned links older than it without fetching. Blocks, detached
+    /// from the interpreter.
     #[pyo3(signature = (ttl_secs, max_age_secs=None, evict_unreachable=true, concurrency=8, token=None, token_host=None))]
+    #[allow(clippy::too_many_arguments)] // a flat keyword surface is the point for Python
     fn refresh(
         &mut self,
         py: Python<'_>,
@@ -273,7 +285,7 @@ impl PyLinkIndex {
         token: Option<String>,
         token_host: Option<String>,
     ) -> PyResult<PyRefreshReport> {
-        let report = py.allow_threads(|| {
+        let report = py.detach(|| {
             self.rt.block_on(async {
                 let mut refresh = self
                     .inner
@@ -322,7 +334,7 @@ impl PyLinkIndex {
         graph_boost: f32,
     ) -> PyResult<Vec<PyHit>> {
         let filter = build_filter(path_prefix, tag);
-        let results = py.allow_threads(|| {
+        let results = py.detach(|| {
             self.rt
                 .block_on(self.inner.search_ranked(&query, k, &filter, graph_boost))
         });
@@ -334,9 +346,12 @@ impl PyLinkIndex {
     /// Follow the knowledge graph from a link: the `k` documents most related to
     /// `url` (outbound targets + co-cited siblings), ranked by connectivity.
     #[pyo3(signature = (url, k=10))]
-    fn related(&self, url: String, k: usize) -> PyResult<Vec<PyHit>> {
-        self.inner
-            .related(&url, k)
+    fn related(&self, py: Python<'_>, url: String, k: usize) -> PyResult<Vec<PyHit>> {
+        // Graph traversal is pure Rust work; staying attached to the
+        // interpreter across it stalls other Python threads for no reason.
+        // Every other method already detached.
+        let results = py.detach(|| self.inner.related(&url, k));
+        results
             .map(|hits| hits.into_iter().map(PyHit::from).collect())
             .map_err(map_err)
     }
@@ -363,7 +378,7 @@ fn link_r(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHit>()?;
     m.add_class::<PyUpdateReport>()?;
     m.add_class::<PyRefreshReport>()?;
-    m.add("LinkRError", m.py().get_type_bound::<LinkRError>())?;
+    m.add("LinkRError", m.py().get_type::<LinkRError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

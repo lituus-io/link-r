@@ -109,16 +109,6 @@ jobs:
     name: Python bindings
     needs: fmt
     runs-on: ubuntu-latest
-    env:
-      # The workflow-level `-D warnings` is dropped for this job only. PyO3
-      # 0.22's `create_exception!` expands to a `cfg(feature = "gil-refs")`
-      # check that current rustc reports as an unexpected cfg value, so the
-      # binding cannot build under the flag through no fault of this crate.
-      # The real fix is the PyO3 bump (which also brings abi3), and that lands
-      # with the binding work rather than being rushed in as a CI patch. Until
-      # then the binding is still built and its tests still run -- only the
-      # deny-warnings escalation is lifted.
-      RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
@@ -128,7 +118,14 @@ jobs:
           key: pyo3
       - uses: actions/setup-python@v5
         with:
+          # 3.12 is the abi3 floor the binding builds against; the resulting
+          # wheel loads on every later version from the same artifact.
           python-version: "3.12"
+      - name: Fmt and clippy the binding
+        working-directory: bindings/python
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets
       - name: Build and test the wheel in place
         working-directory: bindings/python
         run: |
