@@ -10,13 +10,14 @@ name = "link-r"
 version = "0.1.0"
 description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, build a hybrid index, resolve queries to ranked links."
 requires-python = ">=3.8"
-license = { text = "Proprietary" }
+license = { text = "AGPL-3.0-or-later OR LicenseRef-Commercial" }
 authors = [{ name = "lituus-io", email = "spicyzhug@gmail.com" }]
 keywords = ["search", "index", "crawler", "embeddings", "bm25"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
     "Topic :: Text Processing :: Indexing",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
 ]
 
 [project.optional-dependencies]
