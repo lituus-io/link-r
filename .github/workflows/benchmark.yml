@@ -1,0 +1,68 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  # `onnx` is excluded: it downloads a model at build time. See ci.yml.
+  CI_FEATURES: "hash,markdown,html,http,crawl,fs,oauth,robots,quant,parallel"
+
+jobs:
+  benchmark:
+    name: Criterion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench
+
+      - name: Run benchmarks
+        run: cargo bench --features "$CI_FEATURES"
+
+      # Compared against the committed baseline in benches/baselines/. Advisory
+      # on a shared runner: benchmark noise there routinely reaches double
+      # digits, and a gate that fires on noise gets switched off within a week.
+      # The table lands in the job summary so a real regression is visible in
+      # review; the exit status is not allowed to fail the build.
+      - name: Compare against the committed baseline
+        continue-on-error: true
+        run: |
+          python3 scripts/bench.py --check | tee bench.txt
+          {
+            echo "### Benchmarks vs committed baseline"
+            echo ""
+            echo '```'
+            cat bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # This one *does* gate: it is a correctness property rather than a timing
+      # measurement, so runner noise cannot move it. Saving an index twice has to
+      # produce byte-identical files -- that is what makes a content-addressed
+      # cache of an index valid and stops a no-op refresh rewriting it.
+      - name: Determinism regression
+        run: |
+          cargo test --features "$CI_FEATURES" --test hermetic_pipeline \
+            save_open_roundtrip_is_deterministic_and_stable
+
+      - name: Upload criterion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-report
+          path: target/criterion/
+          retention-days: 14

@@ -1,0 +1,83 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+name: Security
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Weekly, Monday 09:00 UTC
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_TERM_COLOR: always
+  # `onnx` is excluded: it downloads a model at build time. See ci.yml.
+  CI_FEATURES: "hash,markdown,html,http,crawl,fs,oauth,robots,quant,parallel"
+
+jobs:
+  audit:
+    name: Advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # cargo-audit is tooling, not part of the build: install it with a current
+      # stable compiler rather than the crate's pinned nightly.
+      - name: Install cargo-audit
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-audit --locked
+      - run: cargo audit
+
+  deny:
+    name: Cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  suite:
+    name: Security suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      # tests/security.rs covers credential handling on private-source crawls:
+      # the Authorization header is stripped on a cross-host redirect, a
+      # host-scoped token is never sent off-host, no token is rendered in Debug,
+      # and URL userinfo never reaches the persisted index.
+      - name: Security tests
+        run: cargo test --features "$CI_FEATURES" --test security
+      # tests/regression.rs additionally pins the untrusted-input bounds: hostile
+      # section counts and a zstd section's declared length cannot name an
+      # unbounded allocation.
+      - name: Regression tests
+        run: cargo test --features "$CI_FEATURES" --test regression
+
+  panic-lints:
+    name: Panic-path lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      # Advisory, not gating. The test suites use unwrap/expect freely by design,
+      # so a hard gate here would only measure test volume. Surfacing the count
+      # keeps a genuinely new panic path visible in review instead of silent.
+      - name: Report panic-capable paths
+        continue-on-error: true
+        run: |
+          cargo clippy --features "$CI_FEATURES" --all-targets -- \
+            -W clippy::unwrap_used \
+            -W clippy::expect_used \
+            -W clippy::panic \
+            2>&1 | tee lints.txt
+          {
+            echo "### Panic-capable paths (advisory)"
+            echo ""
+            echo "count: $(grep -c 'clippy::\(unwrap_used\|expect_used\|panic\)' lints.txt || true)"
+          } >> "$GITHUB_STEP_SUMMARY"

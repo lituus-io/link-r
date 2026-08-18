@@ -1,0 +1,155 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+  CARGO_TERM_COLOR: always
+  # Every feature except `onnx`. `onnx` pulls fastembed, which downloads a model
+  # at build time -- that would make CI network-dependent, slow, and able to fail
+  # for reasons that have nothing to do with this crate. It stays an opt-in
+  # release-wheel feature, exercised when a wheel is built, not on every push.
+  CI_FEATURES: "hash,markdown,html,http,crawl,fs,oauth,robots,quant,parallel"
+
+# The toolchain is NOT selected by dtolnay/rust-toolchain: that action exports
+# RUSTUP_TOOLCHAIN, which overrides rust-toolchain.toml, so CI would silently
+# test a different compiler than developers run -- the exact failure the dated
+# pin exists to prevent. `rustup show` installs the toolchain the file names.
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show
+      - run: cargo fmt --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --features "$CI_FEATURES" --all-targets
+
+  test:
+    name: Test (${{ matrix.name }})
+    needs: fmt
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, runner: ubuntu-latest }
+          - { name: linux-arm64, runner: ubuntu-24.04-arm }
+          - { name: macos-arm64, runner: macos-15 }
+          - { name: windows-x86_64, runner: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+      # The security suite binds a loopback TCP listener to prove that a
+      # cross-host redirect drops the Authorization header, so it needs a
+      # shell that treats $CI_FEATURES the same on every runner.
+      - name: Test
+        shell: bash
+        run: cargo test --features "$CI_FEATURES"
+
+  features:
+    name: Feature matrix
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      # "Installable by requirement" is only true for the combinations someone
+      # actually tried, so every feature is checked standing alone. The bench and
+      # example targets declare required-features, which is why --all-targets can
+      # be used here at all.
+      - name: Each feature alone
+        run: |
+          set -euo pipefail
+          cargo check --no-default-features --all-targets
+          for f in hash markdown html http crawl fs oauth robots quant parallel; do
+            echo "::group::$f"
+            cargo check --no-default-features --features "$f" --all-targets
+            echo "::endgroup::"
+          done
+
+  docs:
+    name: Docs
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --features "$CI_FEATURES" --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  python:
+    name: Python bindings
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/python
+          key: pyo3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and test the wheel in place
+        working-directory: bindings/python
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install maturin pytest
+          maturin develop --release
+          pytest tests/ -v
+
+  coverage:
+    name: Coverage
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: rustup component add llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      # Reported, not gated: publish the number first so the floor that follows
+      # is a measurement rather than a guess.
+      - name: Measure
+        run: |
+          cargo llvm-cov --features "$CI_FEATURES" --summary-only | tee coverage.txt
+          {
+            echo "### Coverage"
+            echo ""
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
