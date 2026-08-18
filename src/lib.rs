@@ -97,6 +97,10 @@ pub use query::{Fusion, Hit, Hits, PreparedQuery, RankParams};
 pub use resource::{DocId, Page, Resource, ResourceKind, SourceRef};
 pub use source::Source;
 pub use url_key::{canonicalize, UrlKey};
+// `url::Url` appears in this crate's own public signatures (crawl scopes,
+// `UpdateBuilder::known_edges`), so consumers need the exact same version --
+// re-exporting it keeps one source of truth instead of a version-sync hazard.
+pub use url::Url;
 
 #[cfg(feature = "crawl")]
 pub use facade::{LinkIndex, SearchResult, UpdateReport};
