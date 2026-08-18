@@ -375,8 +375,9 @@ impl<'a> IndexFile<'a> {
             if raw.len() < 8 {
                 return Err(Error::format("zstd section missing length prefix"));
             }
-            let uncompressed_len = get_u64(raw, 0) as usize;
-            let decoded = zstd::bulk::decompress(&raw[8..], uncompressed_len)
+            let compressed = &raw[8..];
+            let capacity = decompressed_capacity(get_u64(raw, 0), compressed.len())?;
+            let decoded = zstd::bulk::decompress(compressed, capacity)
                 .map_err(|e| Error::format(format!("zstd decode: {e}")))?;
             Ok(Some(std::borrow::Cow::Owned(decoded)))
         } else {
@@ -393,6 +394,37 @@ impl<'a> IndexFile<'a> {
             Some(_) => Err(Error::format("expected uncompressed section")),
         }
     }
+}
+
+/// Absolute ceiling on one decompressed section.
+const MAX_DECOMPRESSED: u64 = 512 * 1024 * 1024;
+/// Largest expansion we will honour from a section's declared length. Real
+/// metadata and edge sections sit far below this; the bound exists only to make
+/// a small hostile payload unable to name a large allocation.
+const MAX_ZSTD_RATIO: u64 = 1024;
+
+/// Decide how many bytes a zstd section may decompress into.
+///
+/// `zstd::bulk::decompress` pre-allocates exactly the capacity it is given, so
+/// passing the file's declared length through unchecked lets a few crafted bytes
+/// name a multi-gigabyte allocation — the same class of defect that fuzzing
+/// already found in the metadata and BM25 decoders, which cap every count by the
+/// bytes actually present. This applies the equivalent bound here: the declared
+/// length must fit in `usize`, stay under [`MAX_DECOMPRESSED`], and stay within
+/// [`MAX_ZSTD_RATIO`] of the compressed payload it claims to come from.
+///
+/// The capacity is a ceiling, not a promise: if the payload decodes to fewer
+/// bytes that is fine, and if it decodes to more, zstd itself errors.
+fn decompressed_capacity(declared: u64, compressed_len: usize) -> Result<usize> {
+    let ratio_bound = (compressed_len as u64).saturating_mul(MAX_ZSTD_RATIO);
+    let bound = ratio_bound.min(MAX_DECOMPRESSED);
+    if declared > bound {
+        return Err(Error::format(format!(
+            "zstd section declares {declared} bytes from {compressed_len} compressed \
+             (bound {bound}); refusing to allocate"
+        )));
+    }
+    usize::try_from(declared).map_err(|_| Error::format("zstd section length overflows usize"))
 }
 
 /// Validate that an index can be parsed from `bytes` without retaining the view.
@@ -521,5 +553,55 @@ mod tests {
         let bytes = build_sample();
         let file = IndexFile::parse(&bytes).unwrap();
         assert!(file.section(SectionKind::Bm25).unwrap().is_none());
+    }
+
+    /// A zstd section's declared uncompressed length is attacker-controlled, and
+    /// `zstd::bulk::decompress` allocates exactly the capacity it is handed. The
+    /// bound must reject a decompression bomb before any allocation happens.
+    #[test]
+    fn a_declared_length_cannot_name_an_unbounded_allocation() {
+        // 16 compressed bytes may not claim to expand to 16 GiB…
+        assert!(decompressed_capacity(16 * 1024 * 1024 * 1024, 16).is_err());
+        // …nor to u64::MAX, which would also overflow usize on 32-bit.
+        assert!(decompressed_capacity(u64::MAX, 16).is_err());
+        // …nor past the absolute ceiling, however large the payload.
+        assert!(decompressed_capacity(MAX_DECOMPRESSED + 1, 10 * 1024 * 1024).is_err());
+    }
+
+    /// The bound must leave real sections plenty of headroom: metadata and edge
+    /// sections compress well, and refusing a legitimate file would be worse
+    /// than the bomb it prevents.
+    #[test]
+    fn the_bound_admits_realistic_compression_ratios() {
+        // A 10 KiB payload expanding 100x is ordinary for repetitive metadata.
+        assert_eq!(
+            decompressed_capacity(1024 * 1024, 10 * 1024).unwrap(),
+            1024 * 1024
+        );
+        // Exactly at the ratio bound is allowed; one byte past it is not.
+        assert!(decompressed_capacity(1024 * MAX_ZSTD_RATIO, 1024).is_ok());
+        assert!(decompressed_capacity(1024 * MAX_ZSTD_RATIO + 1, 1024).is_err());
+        // An empty payload can only claim zero.
+        assert!(decompressed_capacity(0, 0).is_ok());
+        assert!(decompressed_capacity(1, 0).is_err());
+    }
+
+    /// The guard must not have broken the real read path.
+    #[test]
+    fn a_genuinely_compressed_section_still_round_trips() {
+        let payload: Vec<u8> = (0..8192u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
+        let section = zstd_section(&payload, 3);
+        assert!(
+            section.len() < payload.len(),
+            "payload should actually compress"
+        );
+
+        let mut w = IndexWriter::new(sample_header());
+        w.add_section(SectionKind::DocMeta, sflags::ZSTD, section);
+        let bytes = w.finish();
+
+        let file = IndexFile::parse(&bytes).unwrap();
+        let got = file.section(SectionKind::DocMeta).unwrap().unwrap();
+        assert_eq!(&*got, &payload[..]);
     }
 }
