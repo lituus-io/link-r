@@ -191,13 +191,15 @@ impl<A: AuthProvider> Fetcher for HttpFetcher<A> {
             let final_url = (resp.url() != &resource.url).then(|| resp.url().clone());
             let classify_path = resp.url().path().to_owned();
 
+            // Header first, refined by the path: a generic `text/plain` (the
+            // answer raw.githubusercontent gives for everything) yields to a
+            // more specific extension, while a real header claim stands.
             let kind = resp
                 .headers()
                 .get(CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
-                .map(ResourceKind::from_content_type)
-                .filter(|k| *k != ResourceKind::Unknown)
-                .unwrap_or_else(|| ResourceKind::from_path(&classify_path));
+                .map_or(ResourceKind::Unknown, ResourceKind::from_content_type)
+                .refine_with_path(&classify_path);
 
             let etag = resp
                 .headers()

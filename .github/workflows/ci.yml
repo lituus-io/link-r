@@ -19,7 +19,7 @@ env:
   # at build time -- that would make CI network-dependent, slow, and able to fail
   # for reasons that have nothing to do with this crate. It stays an opt-in
   # release-wheel feature, exercised when a wheel is built, not on every push.
-  CI_FEATURES: "hash,markdown,html,http,crawl,fs,oauth,robots,quant,parallel"
+  CI_FEATURES: "hash,markdown,html,http,crawl,fs,github,oauth,robots,quant,parallel"
 
 # The toolchain is NOT selected by dtolnay/rust-toolchain: that action exports
 # RUSTUP_TOOLCHAIN, which overrides rust-toolchain.toml, so CI would silently
@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo check --no-default-features --all-targets
-          for f in hash markdown html http crawl fs oauth robots quant parallel; do
+          for f in hash markdown html http crawl fs github oauth robots quant parallel; do
             echo "::group::$f"
             cargo check --no-default-features --features "$f" --all-targets
             echo "::endgroup::"
@@ -106,16 +106,23 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   python:
-    name: Python bindings
+    name: Python bindings (${{ matrix.os }})
     needs: fmt
-    runs-on: ubuntu-latest
+    # The persisted store must be readable AND writable on every OS a user
+    # runs, so the binding suite runs on all three per push — not only at
+    # release time.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: bindings/python
-          key: pyo3
+          key: pyo3-${{ matrix.os }}
       - uses: actions/setup-python@v5
         with:
           # 3.12 is the abi3 floor the binding builds against; the resulting
@@ -128,9 +135,10 @@ jobs:
           cargo clippy --all-targets
       - name: Build and test the wheel in place
         working-directory: bindings/python
+        shell: bash
         run: |
           python -m venv .venv
-          . .venv/bin/activate
+          . .venv/bin/activate 2>/dev/null || . .venv/Scripts/activate
           pip install maturin pytest
           maturin develop --release
           pytest tests/ -v

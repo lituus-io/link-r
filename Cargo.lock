@@ -1529,6 +1529,8 @@ dependencies = [
  "roaring",
  "scraper",
  "secrecy",
+ "serde",
+ "serde_json",
  "smallvec",
  "tempfile",
  "texting_robots",

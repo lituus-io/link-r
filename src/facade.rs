@@ -308,6 +308,17 @@ impl LinkIndex {
         RefreshBuilder::new(self)
     }
 
+    /// Begin a GitHub tree-API sync (feature `github`): one API call lists
+    /// every blob with its SHA, unchanged files are revalidated without a
+    /// fetch, and only new/changed content transfers. Accepts both spec forms
+    /// (see [`crate::GithubSpec`]). Configure with the builder methods, then
+    /// `.run().await`.
+    #[cfg(feature = "github")]
+    pub fn update_github(&mut self, spec: impl AsRef<str>) -> Result<GithubUpdateBuilder<'_>> {
+        let spec = crate::source::github::GithubSpec::parse(spec.as_ref())?;
+        Ok(GithubUpdateBuilder::new(self, spec))
+    }
+
     /// Pin every link whose URL starts with `url_prefix` so it is retained forever
     /// (exempt from TTL / max-age eviction). Returns how many links changed.
     pub fn pin(&mut self, url_prefix: &str) -> Result<usize> {
@@ -1180,6 +1191,207 @@ impl<'a> UpdateBuilder<'a> {
         // never reach ingest_from — fold them into the report here or the
         // caller (and any freshness tracker behind it) never learns the check
         // happened and the page's revalidation interval can never grow.
+        for url in source.take_revalidated() {
+            report.unchanged += 1;
+            report
+                .pages
+                .push(page_outcome(&url, PageChange::Unchanged, None));
+        }
+        Ok(report)
+    }
+}
+
+/// Configures and runs a GitHub tree-API sync. Created by
+/// [`LinkIndex::update_github`].
+#[cfg(feature = "github")]
+pub struct GithubUpdateBuilder<'a> {
+    index: &'a mut LinkIndex,
+    spec: crate::source::github::GithubSpec,
+    token: Option<String>,
+    api_base: Option<CompactString>,
+    raw_base: Option<CompactString>,
+    depth: Option<u16>,
+    max_bytes: u64,
+    concurrency: usize,
+    embed_batch: usize,
+    pin: bool,
+    accept_extensions: Vec<CompactString>,
+    extra_validators: Vec<(crate::url_key::UrlKey, CompactString)>,
+}
+
+#[cfg(feature = "github")]
+impl std::fmt::Debug for GithubUpdateBuilder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GithubUpdateBuilder")
+            .field("spec", &self.spec)
+            .field("depth", &self.depth)
+            .field("has_token", &self.token.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "github")]
+impl<'a> GithubUpdateBuilder<'a> {
+    fn new(index: &'a mut LinkIndex, spec: crate::source::github::GithubSpec) -> Self {
+        Self {
+            index,
+            spec,
+            token: None,
+            api_base: None,
+            raw_base: None,
+            depth: None,
+            max_bytes: REFRESH_MAX_BYTES,
+            concurrency: 8,
+            embed_batch: DEFAULT_EMBED_BATCH,
+            pin: false,
+            accept_extensions: Vec::new(),
+            extra_validators: Vec::new(),
+        }
+    }
+
+    /// A GitHub token (PAT). Sent as `Bearer` to the API and raw hosts only —
+    /// never to any host a document happens to link to. Required for private
+    /// and internal repositories; anonymous works for public ones.
+    #[must_use]
+    pub fn token(mut self, token: impl Into<String>) -> Self {
+        self.token = Some(token.into());
+        self
+    }
+
+    /// Override the API and raw base URLs (GitHub Enterprise, tests).
+    #[must_use]
+    pub fn bases(
+        mut self,
+        api_base: impl Into<CompactString>,
+        raw_base: impl Into<CompactString>,
+    ) -> Self {
+        self.api_base = Some(api_base.into());
+        self.raw_base = Some(raw_base.into());
+        self
+    }
+
+    /// Cap directory levels below the subdir (0 = only files directly in it).
+    #[must_use]
+    pub fn depth(mut self, depth: u16) -> Self {
+        self.depth = Some(depth);
+        self
+    }
+
+    /// Per-file byte ceiling; oversized files are skipped without a fetch.
+    #[must_use]
+    pub fn max_bytes(mut self, max_bytes: u64) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// Maximum blob fetches in flight at once.
+    #[must_use]
+    pub fn concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency.max(1);
+        self
+    }
+
+    /// Set how many pages are embedded per model call (default 64).
+    #[must_use]
+    pub fn embed_batch(mut self, n: usize) -> Self {
+        self.embed_batch = n.max(1);
+        self
+    }
+
+    /// Pin every file indexed by this sync (exempt from eviction).
+    #[must_use]
+    pub fn pin(mut self) -> Self {
+        self.pin = true;
+        self
+    }
+
+    /// Only index files whose path ends with `extension` (additive).
+    #[must_use]
+    pub fn accept_extension(mut self, extension: impl AsRef<str>) -> Self {
+        let e = extension
+            .as_ref()
+            .trim_start_matches('.')
+            .to_ascii_lowercase();
+        self.accept_extensions.push(CompactString::from(e));
+        self
+    }
+
+    /// Known blob SHAs from a persistent backend (keyed by canonical raw-URL
+    /// key). Same precedence as [`UpdateBuilder::validators`]: the in-memory
+    /// index's own `ETag`s win on conflict; these exist for the stateless
+    /// case, where a fresh index syncs a repository the backend already knows.
+    #[must_use]
+    pub fn validators(
+        mut self,
+        entries: impl IntoIterator<Item = (crate::url_key::UrlKey, CompactString)>,
+    ) -> Self {
+        self.extra_validators.extend(entries);
+        self
+    }
+
+    /// Run the sync: list the tree (one request), fetch only new/changed
+    /// blobs, index them, and report unchanged files as revalidated.
+    ///
+    /// # Errors
+    /// Returns an error if the tree cannot be listed (bad spec, auth, a
+    /// truncated listing) or a page cannot be embedded; per-file fetch
+    /// failures are counted, not propagated.
+    pub async fn run(self) -> Result<UpdateReport> {
+        use crate::source::github::{GitHubSource, GithubAuth};
+
+        self.index.materialize_builder()?;
+        // Caller-supplied seeds first, index-derived second: the source
+        // collects into a map, so the index (fresher within a session) wins.
+        let mut validators = self.extra_validators;
+        {
+            let builder = self.index.builder.as_ref().expect("materialized");
+            for d in builder.documents() {
+                if let Some(etag) = &d.etag {
+                    validators.push((d.url_key, etag.clone()));
+                }
+            }
+        }
+
+        let auth = match (&self.api_base, &self.raw_base) {
+            (Some(api), Some(raw)) => {
+                let api_host = url::Url::parse(api)
+                    .ok()
+                    .and_then(|u| u.host_str().map(CompactString::from))
+                    .unwrap_or_else(|| CompactString::from("api.github.com"));
+                let raw_host = url::Url::parse(raw)
+                    .ok()
+                    .and_then(|u| u.host_str().map(CompactString::from))
+                    .unwrap_or_else(|| CompactString::from("raw.githubusercontent.com"));
+                GithubAuth::new(self.token).with_hosts(api_host, raw_host)
+            }
+            _ => GithubAuth::new(self.token),
+        };
+        let fetcher = HttpFetcher::new(auth)?;
+        let mut source = GitHubSource::new(fetcher, self.spec)
+            .max_bytes(self.max_bytes)
+            .concurrency(self.concurrency)
+            .validators(validators);
+        if let (Some(api), Some(raw)) = (self.api_base, self.raw_base) {
+            source = source.bases(api, raw);
+        }
+        if let Some(depth) = self.depth {
+            source = source.depth(depth);
+        }
+        for ext in self.accept_extensions {
+            source = source.accept_extension(ext);
+        }
+
+        // The tree call enumerates everything; the root argument is unused by
+        // this source, but ingest_from's contract wants one.
+        let root = SourceRef::http("https://api.github.com/")?;
+        let mut report = self
+            .index
+            .ingest_from(&source, &root, self.embed_batch, self.pin)
+            .await?;
+        report.failed = source.failed_count() as usize;
+        // SHA-unchanged files never reach the page stream; fold their
+        // revalidation into the report so freshness trackers learn of it —
+        // the identical contract to the crawler's 304 handling.
         for url in source.take_revalidated() {
             report.unchanged += 1;
             report

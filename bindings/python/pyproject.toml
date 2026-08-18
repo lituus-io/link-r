@@ -11,7 +11,7 @@ build-backend = "maturin"
 # another owner, and PyPI compares names with separators stripped). Only the
 # `pip install` name changes; the module this wheel ships is still `link_r`.
 name = "uu-link-r"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, build a hybrid index, resolve queries to ranked links."
 # abi3-py312 is the floor the Rust side builds against; a lower declaration here
 # would promise interpreters the wheel cannot actually load.

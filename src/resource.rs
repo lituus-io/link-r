@@ -73,6 +73,26 @@ impl ResourceKind {
         }
     }
 
+    /// Refine a header-derived kind with path evidence.
+    ///
+    /// `text/plain` is a generic server's shrug, not a real claim —
+    /// raw.githubusercontent.com serves *everything* as `text/plain`, so
+    /// trusting the header there classified `.md` as [`ResourceKind::Text`]
+    /// and markdown link-following never engaged. When the header says only
+    /// Text (or nothing usable), a more specific path extension wins; a
+    /// specific header claim (`text/html`, `text/markdown`, …) is never
+    /// overridden.
+    #[must_use]
+    pub fn refine_with_path(self, path: &str) -> Self {
+        if matches!(self, Self::Text | Self::Unknown) {
+            let from_path = Self::from_path(path);
+            if from_path != Self::Unknown {
+                return from_path;
+            }
+        }
+        self
+    }
+
     /// Whether this kind carries text worth extracting and indexing.
     #[must_use]
     pub fn is_indexable(self) -> bool {
@@ -264,6 +284,37 @@ mod tests {
         assert_eq!(ResourceKind::from_path("README.md"), ResourceKind::Markdown);
         assert_eq!(ResourceKind::from_path("src/lib.rs"), ResourceKind::Code);
         assert_eq!(ResourceKind::from_path("/a/b/"), ResourceKind::Unknown);
+    }
+
+    #[test]
+    fn refine_prefers_specific_path_over_generic_text() {
+        // The raw.githubusercontent shape: everything arrives text/plain.
+        let generic = ResourceKind::from_content_type("text/plain; charset=utf-8");
+        assert_eq!(
+            generic.refine_with_path("/o/r/main/docs/a.md"),
+            ResourceKind::Markdown
+        );
+        assert_eq!(
+            generic.refine_with_path("/o/r/main/Pulumi.yaml"),
+            ResourceKind::Code
+        );
+        assert_eq!(
+            generic.refine_with_path("/o/r/main/page.html"),
+            ResourceKind::Html
+        );
+        // A path with nothing to say leaves Text alone.
+        assert_eq!(
+            generic.refine_with_path("/o/r/main/LICENSE"),
+            ResourceKind::Text
+        );
+        // A specific header claim is never overridden by the path.
+        let html = ResourceKind::from_content_type("text/html");
+        assert_eq!(html.refine_with_path("/a/b.md"), ResourceKind::Html);
+        // Unknown still falls through to the path (the pre-existing behavior).
+        assert_eq!(
+            ResourceKind::Unknown.refine_with_path("/a/b.md"),
+            ResourceKind::Markdown
+        );
     }
 
     #[test]

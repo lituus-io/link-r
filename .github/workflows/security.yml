@@ -18,7 +18,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CARGO_TERM_COLOR: always
   # `onnx` is excluded: it downloads a model at build time. See ci.yml.
-  CI_FEATURES: "hash,markdown,html,http,crawl,fs,oauth,robots,quant,parallel"
+  CI_FEATURES: "hash,markdown,html,http,crawl,fs,github,oauth,robots,quant,parallel"
 
 jobs:
   audit:

@@ -12,11 +12,15 @@
 pub mod crawl;
 #[cfg(feature = "fs")]
 pub mod fs;
+#[cfg(feature = "github")]
+pub mod github;
 
 #[cfg(feature = "crawl")]
 pub use crawl::{CrawlConfig, CrawlScope, CrawlSource};
 #[cfg(feature = "fs")]
 pub use fs::FsSource;
+#[cfg(feature = "github")]
+pub use github::{GitHubSource, GithubAuth, GithubSpec};
 
 use crate::error::Result;
 use crate::resource::{Page, SourceRef};

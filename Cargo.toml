@@ -3,7 +3,7 @@
 
 [package]
 name = "link-r"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
@@ -32,6 +32,9 @@ html = ["dep:scraper", "dep:memchr"]                # HTML content + fast <a hre
 http = ["dep:reqwest"]                              # HttpFetcher (rustls)
 crawl = ["http", "html", "dep:async-stream", "dep:futures-timer"]  # recursive depth crawler
 fs = ["dep:walkdir"]                                # local filesystem source
+# GitHub tree-API source: one API call lists every blob with its SHA, so an
+# unchanged repo revalidates with a single request and zero content fetches.
+github = ["http", "dep:async-stream", "dep:serde", "dep:serde_json"]
 
 # --- auth ---
 oauth = ["http", "dep:arc-swap"]                    # expiring-token refresh provider
@@ -42,7 +45,7 @@ quant = []                                          # int8 + binary quantization
 parallel = ["dep:rayon"]                            # rayon-parallel build
 
 full = ["hash", "onnx", "markdown", "html", "http", "crawl", "fs",
-        "oauth", "robots", "quant", "parallel"]
+        "github", "oauth", "robots", "quant", "parallel"]
 
 [dependencies]
 # --- always-on core (tiny, offline) ---
@@ -68,6 +71,8 @@ walkdir = { version = "2.5", optional = true }
 # rustls (not native-tls/openssl) to match the house TLS policy.
 fastembed = { version = "4", optional = true, default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }
 arc-swap = { version = "1.7", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
 rayon = { version = "1.10", optional = true }
 texting_robots = { version = "0.2", optional = true }
 

@@ -4,6 +4,52 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.0
+
+### GitHub tree-API source (feature `github`)
+
+Index a GitHub repository — or one subdirectory of it — without crawling
+anything, and without depending on its link structure:
+
+- One `git/trees/{ref}?recursive=1` call lists every file with its blob SHA.
+  The SHA is the change token: entries matching a caller-supplied validator
+  are reported as revalidated and **never fetched**, so an unchanged
+  repository costs **exactly one HTTPS request per sync**. Oversized files
+  are skipped from the tree's own size field — no fetch ever issued.
+- New/changed blobs are fetched from raw.githubusercontent.com, classified by
+  path (raw serves everything as `text/plain`), and yielded with the blob SHA
+  as their entity tag — which a persistent backend stores and hands back as
+  the next sync's validators, closing the loop across process restarts.
+- `GithubSpec::parse` accepts both spellings and normalizes them:
+  `https://github.com/owner/repo[/tree/ref[/dir]]` and
+  `github:owner/repo@ref[//dir]` (the only unambiguous form for branch names
+  containing `/`). A bare repo resolves its default branch with one extra call.
+- `GithubAuth` confines the bearer token to exactly `api.github.com` and
+  `raw.githubusercontent.com` (overridable for GHE) — a document may link
+  anywhere; the token must not follow. Works for public, private, and
+  internal repositories (raw accepts `Bearer`).
+- Facade: `LinkIndex::update_github(spec)` with token/depth (directory
+  levels)/max-bytes/extension filters, folding revalidated files into the
+  report exactly as the crawler folds 304s.
+- Hermetic end-to-end tests against a loopback fake GitHub pin the counts:
+  1 tree call + 0 fetches for an unchanged repo, +1 fetch for a one-file
+  change, typed error on a truncated listing, depth/extension confinement,
+  and token confinement to the two hosts.
+
+### Fixed
+
+- Content-type classification now refines a generic `text/plain` with path
+  evidence (`ResourceKind::refine_with_path`): raw.githubusercontent serves
+  `.md` as `text/plain`, which classified markdown as plain text and disabled
+  link-following on the crawl path. A specific header claim is never
+  overridden.
+
+### CI
+
+- The Python-binding job runs on Linux, macOS, and Windows on every push (it
+  was ubuntu-only outside releases), so persisted-store read/write is proven
+  per-OS continuously.
+
 ## 0.1.0
 
 Initial release: a tiny, embeddable crawl-and-resolve link index. Give it a

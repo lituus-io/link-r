@@ -102,6 +102,8 @@ pub use url_key::{canonicalize, UrlKey};
 // re-exporting it keeps one source of truth instead of a version-sync hazard.
 pub use url::Url;
 
+#[cfg(all(feature = "crawl", feature = "github"))]
+pub use facade::GithubUpdateBuilder;
 #[cfg(feature = "crawl")]
 pub use facade::{LinkIndex, SearchResult, UpdateReport};
 #[cfg(feature = "http")]
@@ -110,6 +112,8 @@ pub use fetch::HttpFetcher;
 pub use source::FsSource;
 #[cfg(feature = "crawl")]
 pub use source::{CrawlConfig, CrawlScope, CrawlSource};
+#[cfg(feature = "github")]
+pub use source::{GitHubSource, GithubAuth, GithubSpec};
 
 /// Everything you need for the dead-simple API, in one glob import.
 pub mod prelude {
