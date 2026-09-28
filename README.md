@@ -48,6 +48,25 @@ for related in idx.related("https://example.com/docs/auth", 5)? {
 For private sources, inject auth: `.token("ghp_...")` (scoped to the crawl host, so
 it is never sent off-host) or `.auth(Box::new(my_oauth))`.
 
+## Object storage and custom embedders (0.3)
+
+```rust,ignore
+// Load an index straight from a bucket and search it zero-copy.
+let gcs = objstore_r::Gcs::new("my-bucket", objstore_r::token::Adc::discover()?, Default::default())?;
+let remote = link_r_objstore::Remote::new(&gcs, "kb/runbooks")?;
+let index = remote.load().await?.expect("published");
+
+// Or bring bytes from anywhere.
+let index = link_r::LinkIndex::from_bytes(bytes)?;
+
+// After a sync: settle into the compact form, then publish (fenced).
+index.freeze()?;
+remote.publish(&index).await?;
+
+// Any `Embedder` (e.g. a remote embedding API) instead of the default.
+let index = link_r::LinkIndex::in_memory_with(my_embedder);
+```
+
 ## Python (drop-in RAG replacement)
 
 Build a categorical knowledge base from GitHub links, maintain it on a TTL, and

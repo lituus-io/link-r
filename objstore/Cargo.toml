@@ -1,0 +1,36 @@
+# Copyright: lituus-io, all rights reserved.
+# Author: terekete <spicyzhug@gmail.com>
+
+[package]
+name = "link-r-objstore"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "AGPL-3.0-or-later"
+description = "Load and publish link-r indexes on an object store (GCS, local, memory): zero-copy loads, fenced single writer"
+repository = "https://github.com/lituus-io/link-r"
+authors = ["lituus-io <spicyzhug@gmail.com>"]
+publish = false
+
+# Separate from link-r on purpose: link-r's manifest gains no dependency, so
+# builds that never touch object storage are unaffected.
+
+[features]
+default = []
+gcs = ["objstore-r/gcs"]
+
+[dependencies]
+link-r = { path = ".." }
+objstore-r = { path = "../../objstore-r" }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+thiserror = "1.0"
+
+[dev-dependencies]
+futures = "0.3"
+bytes = "1.7"
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }
+tempfile = "3.12"
+url = "2.5"
+
+[workspace]
+members = ["."]

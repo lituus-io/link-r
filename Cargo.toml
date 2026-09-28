@@ -3,9 +3,9 @@
 
 [package]
 name = "link-r"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "AGPL-3.0-or-later"
 description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, distill keywords, build a zero-copy hybrid index, resolve queries to ranked links."
 repository = "https://github.com/lituus-io/link-r"

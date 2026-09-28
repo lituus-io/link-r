@@ -62,11 +62,11 @@ pub fn cast_f32(bytes: &[u8]) -> Result<&[f32]> {
         "link-r index format is little-endian"
     );
 
-    if bytes.len() % std::mem::size_of::<f32>() != 0 {
+    if !bytes.len().is_multiple_of(std::mem::size_of::<f32>()) {
         return Err(Error::format("dense section length is not a multiple of 4"));
     }
     let ptr = bytes.as_ptr();
-    if (ptr as usize) % std::mem::align_of::<f32>() != 0 {
+    if !(ptr as usize).is_multiple_of(std::mem::align_of::<f32>()) {
         return Err(Error::format("dense section is not f32-aligned"));
     }
     let len = bytes.len() / std::mem::size_of::<f32>();

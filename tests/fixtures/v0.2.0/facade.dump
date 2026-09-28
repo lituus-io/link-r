@@ -1,0 +1,52 @@
+len 4
+doc https://docs.example.com/networking/psc kind=Html hash=b5e6a04f1685d635 len=21 title=Some("Private Service Connect") snippet="PSC Reach Google APIs and services privately over an internal IP using Private Service Connect. Autopilot BigQuery" lang=None tags=["networking", "psc"] pinned=false etag=None edges=[6474336173b73d70, a6e94eb755f4642a]
+doc https://docs.example.com/compute/autopilot kind=Html hash=cd9fa295efe9b8ad len=26 title=Some("GKE Autopilot") snippet="Autopilot Autopilot is a mode of operation in GKE in which Google manages your cluster nodes, scaling, and security for Kubernetes workloads. PSC" lang=None tags=["compute", "autopilot"] pinned=false etag=None edges=[f11c1286d3a3445f]
+doc https://docs.example.com/data/bigquery kind=Html hash=2bc298570556c5a4 len=29 title=Some("BigQuery Row Access") snippet="Row Access Policies BigQuery row-level security uses row access policies to restrict which rows a principal can query in a table. PSC" lang=None tags=["data", "bigquery"] pinned=false etag=None edges=[f11c1286d3a3445f]
+doc https://docs.example.com/guides/security.md kind=Markdown hash=a854f82e4f328466 len=13 title=Some("Security overview") snippet="# Security Kubernetes security, IAM principals and least privilege for workloads." lang=None tags=["guides", "security"] pinned=true etag=None edges=[]
+query "private service connect"
+  https://docs.example.com/networking/psc 0.0328 Some("Private Service Connect") ["networking", "psc"]
+  https://docs.example.com/data/bigquery 0.0161 Some("BigQuery Row Access") ["data", "bigquery"]
+  https://docs.example.com/guides/security.md 0.0159 Some("Security overview") ["guides", "security"]
+  https://docs.example.com/compute/autopilot 0.0156 Some("GKE Autopilot") ["compute", "autopilot"]
+  boosted https://docs.example.com/networking/psc 0.0407
+  boosted https://docs.example.com/data/bigquery 0.0325
+  boosted https://docs.example.com/compute/autopilot 0.0320
+  boosted https://docs.example.com/guides/security.md 0.0159
+query "autopilot nodes"
+  https://docs.example.com/compute/autopilot 0.0328 Some("GKE Autopilot") ["compute", "autopilot"]
+  https://docs.example.com/networking/psc 0.0323 Some("Private Service Connect") ["networking", "psc"]
+  https://docs.example.com/guides/security.md 0.0159 Some("Security overview") ["guides", "security"]
+  https://docs.example.com/data/bigquery 0.0156 Some("BigQuery Row Access") ["data", "bigquery"]
+  boosted https://docs.example.com/compute/autopilot 0.0489
+  boosted https://docs.example.com/networking/psc 0.0444
+  boosted https://docs.example.com/data/bigquery 0.0318
+  boosted https://docs.example.com/guides/security.md 0.0159
+query "row access policy"
+  https://docs.example.com/data/bigquery 0.0328 Some("BigQuery Row Access") ["data", "bigquery"]
+  https://docs.example.com/compute/autopilot 0.0161 Some("GKE Autopilot") ["compute", "autopilot"]
+  https://docs.example.com/guides/security.md 0.0159 Some("Security overview") ["guides", "security"]
+  https://docs.example.com/networking/psc 0.0156 Some("Private Service Connect") ["networking", "psc"]
+  boosted https://docs.example.com/data/bigquery 0.0406
+  boosted https://docs.example.com/networking/psc 0.0279
+  boosted https://docs.example.com/compute/autopilot 0.0239
+  boosted https://docs.example.com/guides/security.md 0.0159
+query "kubernetes security"
+  https://docs.example.com/guides/security.md 0.0328 Some("Security overview") ["guides", "security"]
+  https://docs.example.com/compute/autopilot 0.0323 Some("GKE Autopilot") ["compute", "autopilot"]
+  https://docs.example.com/data/bigquery 0.0317 Some("BigQuery Row Access") ["data", "bigquery"]
+  https://docs.example.com/networking/psc 0.0156 Some("Private Service Connect") ["networking", "psc"]
+  boosted https://docs.example.com/compute/autopilot 0.0401
+  boosted https://docs.example.com/data/bigquery 0.0396
+  boosted https://docs.example.com/guides/security.md 0.0328
+  boosted https://docs.example.com/networking/psc 0.0316
+query "zzz nothing"
+  https://docs.example.com/guides/security.md 0.0164 Some("Security overview") ["guides", "security"]
+  https://docs.example.com/compute/autopilot 0.0161 Some("GKE Autopilot") ["compute", "autopilot"]
+  https://docs.example.com/networking/psc 0.0159 Some("Private Service Connect") ["networking", "psc"]
+  https://docs.example.com/data/bigquery 0.0156 Some("BigQuery Row Access") ["data", "bigquery"]
+  boosted https://docs.example.com/compute/autopilot 0.0241
+  boosted https://docs.example.com/networking/psc 0.0238
+  boosted https://docs.example.com/data/bigquery 0.0236
+  boosted https://docs.example.com/guides/security.md 0.0164
+related https://docs.example.com/compute/autopilot 2.0000
+related https://docs.example.com/data/bigquery 2.0000

@@ -25,3 +25,6 @@ __pycache__/
 
 # fastembed/ONNX model cache
 .fastembed_cache/
+
+# Golden compatibility fixtures ARE tracked
+!tests/fixtures/**/*.lnkr

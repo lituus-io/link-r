@@ -47,7 +47,6 @@ use crate::error::{Error, Result};
 use crate::extract::{AutoExtractor, Descriptor, Extractor};
 use crate::fetch::{FetchOptions, Fetcher, HttpFetcher};
 use crate::index::{Index, IndexBuilder, UpsertOutcome};
-use crate::metric::Metric;
 use crate::query::{PreparedQuery, RankParams};
 use crate::resource::{Resource, ResourceKind, SourceRef};
 use crate::source::{CrawlScope, CrawlSource, Source};
@@ -76,13 +75,24 @@ const DEFAULT_EMBED_BATCH: usize = 64;
 /// Per-page byte ceiling for conditional refresh fetches (2 MiB).
 const REFRESH_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
+/// Construct [`DefaultEmbedder`] exactly as the default constructors do (for
+/// code that pairs the `*_with` constructors with the default embedder).
+///
+/// # Errors
+/// Returns an error if the model cannot be loaded (feature `onnx`).
 #[cfg(feature = "onnx")]
-fn default_embedder() -> Result<DefaultEmbedder> {
+pub fn default_embedder() -> Result<DefaultEmbedder> {
     crate::embed::OnnxEmbedder::new()
 }
+/// Construct [`DefaultEmbedder`] exactly as the default constructors do (for
+/// code that pairs the `*_with` constructors with the default embedder).
+///
+/// # Errors
+/// Never fails without feature `onnx`; the signature matches the fallible
+/// model-loading variant.
 #[cfg(not(feature = "onnx"))]
 #[allow(clippy::unnecessary_wraps)] // signature must match the fallible onnx variant
-fn default_embedder() -> Result<DefaultEmbedder> {
+pub fn default_embedder() -> Result<DefaultEmbedder> {
     Ok(crate::embed::HashEmbedder::new(HASH_DIM))
 }
 
@@ -207,77 +217,177 @@ impl RefreshReport {
 /// straight after [`open`](LinkIndex::open) (zero-copy), or a cached snapshot of the
 /// in-memory builder after a mutation. The builder is materialized lazily on the
 /// first mutation, so opening and searching a persisted index never rebuilds it.
+///
+/// The embedder is a type parameter defaulting to [`DefaultEmbedder`], so
+/// existing code is unchanged; bring your own (a remote embedding API, say)
+/// with the `*_with` constructors.
 #[derive(Debug)]
-pub struct LinkIndex {
+pub struct LinkIndex<E = DefaultEmbedder> {
     path: Option<PathBuf>,
-    embedder: DefaultEmbedder,
+    embedder: E,
     /// The mmap-backed index from `open`, present until the first mutation.
     opened: Option<Index>,
     /// The mutable builder, materialized lazily from `opened` (or created empty).
     builder: Option<IndexBuilder>,
     /// Search snapshot of `builder`, built lazily and invalidated on mutation.
     cached: OnceLock<Index>,
+    /// One HTTP client for every crawl/refresh run on this index.
+    http: OnceLock<reqwest::Client>,
 }
 
 impl LinkIndex {
-    fn from_builder(
-        path: Option<PathBuf>,
-        embedder: DefaultEmbedder,
-        builder: IndexBuilder,
-    ) -> Self {
-        Self {
-            path,
-            embedder,
-            opened: None,
-            builder: Some(builder),
-            cached: OnceLock::new(),
-        }
-    }
-
-    fn from_opened(path: PathBuf, embedder: DefaultEmbedder, opened: Index) -> Self {
-        Self {
-            path: Some(path),
-            embedder,
-            opened: Some(opened),
-            builder: None,
-            cached: OnceLock::new(),
-        }
-    }
-
     /// Open an existing index at `path`, or create an empty one bound to it.
     ///
     /// # Errors
     /// Returns an error if the embedder cannot be loaded, the file is corrupt, or
     /// an existing index was built with an incompatible embedder.
     pub fn open_or_create(path: impl Into<PathBuf>) -> Result<Self> {
-        let embedder = default_embedder()?;
-        let path = path.into();
-        if path.exists() {
-            let index = open_compatible(&path, &embedder)?;
-            Ok(Self::from_opened(path, embedder, index))
-        } else {
-            let builder =
-                IndexBuilder::new(embedder.dim(), Metric::Cosine, embedder.identity().raw());
-            Ok(Self::from_builder(Some(path), embedder, builder))
-        }
+        Self::open_or_create_with(path, default_embedder()?)
     }
 
     /// Open an existing index (errors if it does not exist).
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
-        let embedder = default_embedder()?;
-        let path = path.into();
-        if !path.exists() {
-            return Err(Error::not_found(path.display().to_string()));
-        }
-        let index = open_compatible(&path, &embedder)?;
-        Ok(Self::from_opened(path, embedder, index))
+        Self::open_with(path, default_embedder()?)
     }
 
     /// Create an in-memory index not bound to any file.
     pub fn in_memory() -> Result<Self> {
-        let embedder = default_embedder()?;
-        let builder = IndexBuilder::new(embedder.dim(), Metric::Cosine, embedder.identity().raw());
-        Ok(Self::from_builder(None, embedder, builder))
+        Ok(Self::in_memory_with(default_embedder()?))
+    }
+
+    /// Load an index from an in-memory image (the bytes of a `.lnkr` file,
+    /// e.g. fetched from object storage), not bound to any file. Searches run
+    /// zero-copy over `bytes`.
+    ///
+    /// # Errors
+    /// Returns an error if the image is corrupt or was built with an
+    /// incompatible embedder.
+    pub fn from_bytes(bytes: Bytes) -> Result<Self> {
+        Self::from_bytes_with(bytes, default_embedder()?)
+    }
+}
+
+impl<E: Embedder> LinkIndex<E> {
+    fn from_builder(path: Option<PathBuf>, embedder: E, builder: IndexBuilder) -> Self {
+        Self {
+            path,
+            embedder,
+            opened: None,
+            builder: Some(builder),
+            cached: OnceLock::new(),
+            http: OnceLock::new(),
+        }
+    }
+
+    fn from_opened(path: Option<PathBuf>, embedder: E, opened: Index) -> Self {
+        Self {
+            path,
+            embedder,
+            opened: Some(opened),
+            builder: None,
+            cached: OnceLock::new(),
+            http: OnceLock::new(),
+        }
+    }
+
+    /// [`LinkIndex::open_or_create`] with a caller-supplied embedder.
+    ///
+    /// # Errors
+    /// As [`LinkIndex::open_or_create`].
+    pub fn open_or_create_with(path: impl Into<PathBuf>, embedder: E) -> Result<Self> {
+        let path = path.into();
+        if path.exists() {
+            let index =
+                check_compatible(Index::open(&path)?, &embedder, &path.display().to_string())?;
+            Ok(Self::from_opened(Some(path), embedder, index))
+        } else {
+            let builder =
+                IndexBuilder::new(embedder.dim(), embedder.metric(), embedder.identity().raw());
+            Ok(Self::from_builder(Some(path), embedder, builder))
+        }
+    }
+
+    /// [`LinkIndex::open`] with a caller-supplied embedder.
+    ///
+    /// # Errors
+    /// As [`LinkIndex::open`].
+    pub fn open_with(path: impl Into<PathBuf>, embedder: E) -> Result<Self> {
+        let path = path.into();
+        if !path.exists() {
+            return Err(Error::not_found(path.display().to_string()));
+        }
+        let index = check_compatible(Index::open(&path)?, &embedder, &path.display().to_string())?;
+        Ok(Self::from_opened(Some(path), embedder, index))
+    }
+
+    /// [`LinkIndex::in_memory`] with a caller-supplied embedder.
+    #[must_use]
+    pub fn in_memory_with(embedder: E) -> Self {
+        let builder =
+            IndexBuilder::new(embedder.dim(), embedder.metric(), embedder.identity().raw());
+        Self::from_builder(None, embedder, builder)
+    }
+
+    /// [`LinkIndex::from_bytes`] with a caller-supplied embedder.
+    ///
+    /// # Errors
+    /// As [`LinkIndex::from_bytes`].
+    pub fn from_bytes_with(bytes: Bytes, embedder: E) -> Result<Self> {
+        let index = check_compatible(Index::from_bytes(bytes)?, &embedder, "in-memory image")?;
+        Ok(Self::from_opened(None, embedder, index))
+    }
+
+    /// The embedder this index embeds queries and documents with.
+    #[must_use]
+    pub fn embedder(&self) -> &E {
+        &self.embedder
+    }
+
+    /// The image [`LinkIndex::save`] would write (for object storage, or any
+    /// transport). Unmutated since load, this is the loaded image unchanged.
+    ///
+    /// # Errors
+    /// Returns [`Error::Format`] if the index has no content.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        match (&self.opened, &self.builder) {
+            (Some(idx), _) => idx.serialize(),
+            (None, Some(b)) => Ok(b.serialize()),
+            (None, None) => Err(Error::format("index has no content to serialize")),
+        }
+    }
+
+    /// Settle a mutated index into its compact, read-optimized form: the
+    /// builder and its search snapshot (two copies of the corpus) are replaced
+    /// by one serialized image that searches run zero-copy against. Mutating
+    /// again later re-materializes the builder. Cheap no-op when unmutated.
+    ///
+    /// # Errors
+    /// Returns [`Error::Format`] if the index cannot be serialized.
+    pub fn freeze(&mut self) -> Result<()> {
+        let Some(builder) = self.builder.take() else {
+            return Ok(());
+        };
+        let image = Bytes::from(builder.serialize());
+        match Index::from_bytes(image) {
+            Ok(index) => {
+                self.opened = Some(index);
+                self.cached = OnceLock::new();
+                Ok(())
+            }
+            Err(e) => {
+                self.builder = Some(builder);
+                Err(e)
+            }
+        }
+    }
+
+    /// The shared HTTP client (built on first use).
+    fn http_client(&self) -> Result<reqwest::Client> {
+        if let Some(c) = self.http.get() {
+            return Ok(c.clone());
+        }
+        let c = crate::fetch::http::default_client()?;
+        Ok(self.http.get_or_init(|| c).clone())
     }
 
     /// Number of indexed links.
@@ -298,14 +408,14 @@ impl LinkIndex {
 
     /// Begin a crawl-and-index from a parent URL. Configure with the builder
     /// methods, then `.run().await`.
-    pub fn update(&mut self, url: impl Into<String>) -> UpdateBuilder<'_> {
-        UpdateBuilder::new(self, url.into())
+    pub fn update(&mut self, url: impl Into<String>) -> UpdateBuilder<'_, E> {
+        UpdateBuilder::<'_, E>::new(self, url.into())
     }
 
     /// Begin a TTL refresh of already-indexed links. Configure with the builder
     /// methods, then `.run().await`.
-    pub fn refresh(&mut self) -> RefreshBuilder<'_> {
-        RefreshBuilder::new(self)
+    pub fn refresh(&mut self) -> RefreshBuilder<'_, E> {
+        RefreshBuilder::<'_, E>::new(self)
     }
 
     /// Begin a GitHub tree-API sync (feature `github`): one API call lists
@@ -314,9 +424,9 @@ impl LinkIndex {
     /// (see [`crate::GithubSpec`]). Configure with the builder methods, then
     /// `.run().await`.
     #[cfg(feature = "github")]
-    pub fn update_github(&mut self, spec: impl AsRef<str>) -> Result<GithubUpdateBuilder<'_>> {
+    pub fn update_github(&mut self, spec: impl AsRef<str>) -> Result<GithubUpdateBuilder<'_, E>> {
         let spec = crate::source::github::GithubSpec::parse(spec.as_ref())?;
-        Ok(GithubUpdateBuilder::new(self, spec))
+        Ok(GithubUpdateBuilder::<'_, E>::new(self, spec))
     }
 
     /// Pin every link whose URL starts with `url_prefix` so it is retained forever
@@ -492,6 +602,7 @@ impl LinkIndex {
             cached,
             ..
         } = self;
+        let embedder: &E = embedder;
         let builder = builder.as_mut().expect("materialized");
 
         let mut report = UpdateReport::default();
@@ -524,7 +635,7 @@ impl LinkIndex {
             if pending.len() == embed_batch {
                 flush_batch(
                     builder,
-                    &*embedder,
+                    embedder,
                     &mut pending,
                     &mut buf,
                     dim,
@@ -536,7 +647,7 @@ impl LinkIndex {
         }
         flush_batch(
             builder,
-            &*embedder,
+            embedder,
             &mut pending,
             &mut buf,
             dim,
@@ -876,12 +987,10 @@ async fn conditional_fetch<F: Fetcher>(
     (resource.url, outcome)
 }
 
-fn open_compatible(path: &Path, embedder: &DefaultEmbedder) -> Result<Index> {
-    let index = Index::open(path)?;
+fn check_compatible<E: Embedder>(index: Index, embedder: &E, what: &str) -> Result<Index> {
     if index.dim() != embedder.dim() || index.embedder_id() != embedder.identity().raw() {
         return Err(Error::embed(format!(
-            "index at {} is incompatible with the current embedder (index dim {}, embedder dim {})",
-            path.display(),
+            "index at {what} is incompatible with the current embedder (index dim {}, embedder dim {})",
             index.dim(),
             embedder.dim()
         )));
@@ -918,8 +1027,8 @@ impl Default for RefreshOptions {
 }
 
 /// Configures and runs a crawl-and-index. Created by [`LinkIndex::update`].
-pub struct UpdateBuilder<'a> {
-    index: &'a mut LinkIndex,
+pub struct UpdateBuilder<'a, E = DefaultEmbedder> {
+    index: &'a mut LinkIndex<E>,
     root: String,
     depth: u16,
     scope: CrawlScope,
@@ -944,7 +1053,7 @@ pub struct UpdateBuilder<'a> {
     extra_known_edges: Vec<(crate::url_key::UrlKey, Vec<url::Url>)>,
 }
 
-impl std::fmt::Debug for UpdateBuilder<'_> {
+impl<E> std::fmt::Debug for UpdateBuilder<'_, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UpdateBuilder")
             .field("root", &self.root)
@@ -955,8 +1064,8 @@ impl std::fmt::Debug for UpdateBuilder<'_> {
     }
 }
 
-impl<'a> UpdateBuilder<'a> {
-    fn new(index: &'a mut LinkIndex, root: String) -> Self {
+impl<'a, E: Embedder> UpdateBuilder<'a, E> {
+    fn new(index: &'a mut LinkIndex<E>, root: String) -> Self {
         Self {
             index,
             root,
@@ -1158,7 +1267,7 @@ impl<'a> UpdateBuilder<'a> {
             }
             (validators, known_edges)
         };
-        let fetcher = HttpFetcher::new(self.auth)?;
+        let fetcher = HttpFetcher::with_client(self.index.http_client()?, self.auth);
         #[allow(unused_mut)]
         let mut source = CrawlSource::new(fetcher)
             .validators(validators)
@@ -1204,8 +1313,8 @@ impl<'a> UpdateBuilder<'a> {
 /// Configures and runs a GitHub tree-API sync. Created by
 /// [`LinkIndex::update_github`].
 #[cfg(feature = "github")]
-pub struct GithubUpdateBuilder<'a> {
-    index: &'a mut LinkIndex,
+pub struct GithubUpdateBuilder<'a, E = DefaultEmbedder> {
+    index: &'a mut LinkIndex<E>,
     spec: crate::source::github::GithubSpec,
     token: Option<String>,
     api_base: Option<CompactString>,
@@ -1220,7 +1329,7 @@ pub struct GithubUpdateBuilder<'a> {
 }
 
 #[cfg(feature = "github")]
-impl std::fmt::Debug for GithubUpdateBuilder<'_> {
+impl<E> std::fmt::Debug for GithubUpdateBuilder<'_, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GithubUpdateBuilder")
             .field("spec", &self.spec)
@@ -1231,8 +1340,8 @@ impl std::fmt::Debug for GithubUpdateBuilder<'_> {
 }
 
 #[cfg(feature = "github")]
-impl<'a> GithubUpdateBuilder<'a> {
-    fn new(index: &'a mut LinkIndex, spec: crate::source::github::GithubSpec) -> Self {
+impl<'a, E: Embedder> GithubUpdateBuilder<'a, E> {
+    fn new(index: &'a mut LinkIndex<E>, spec: crate::source::github::GithubSpec) -> Self {
         Self {
             index,
             spec,
@@ -1366,7 +1475,7 @@ impl<'a> GithubUpdateBuilder<'a> {
             }
             _ => GithubAuth::new(self.token),
         };
-        let fetcher = HttpFetcher::new(auth)?;
+        let fetcher = HttpFetcher::with_client(self.index.http_client()?, auth);
         let mut source = GitHubSource::new(fetcher, self.spec)
             .max_bytes(self.max_bytes)
             .concurrency(self.concurrency)
@@ -1403,14 +1512,14 @@ impl<'a> GithubUpdateBuilder<'a> {
 }
 
 /// Configures and runs a TTL refresh. Created by [`LinkIndex::refresh`].
-pub struct RefreshBuilder<'a> {
-    index: &'a mut LinkIndex,
+pub struct RefreshBuilder<'a, E = DefaultEmbedder> {
+    index: &'a mut LinkIndex<E>,
     opts: RefreshOptions,
     auth: Box<dyn DynAuthProvider>,
     scoped_host: Option<CompactString>,
 }
 
-impl std::fmt::Debug for RefreshBuilder<'_> {
+impl<E> std::fmt::Debug for RefreshBuilder<'_, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RefreshBuilder")
             .field("opts", &self.opts)
@@ -1418,8 +1527,8 @@ impl std::fmt::Debug for RefreshBuilder<'_> {
     }
 }
 
-impl<'a> RefreshBuilder<'a> {
-    fn new(index: &'a mut LinkIndex) -> Self {
+impl<'a, E: Embedder> RefreshBuilder<'a, E> {
+    fn new(index: &'a mut LinkIndex<E>) -> Self {
         Self {
             index,
             opts: RefreshOptions::default(),
@@ -1498,7 +1607,7 @@ impl<'a> RefreshBuilder<'a> {
     /// # Errors
     /// Propagates extract/embed failures; per-link fetch failures are counted.
     pub async fn run(self) -> Result<RefreshReport> {
-        let fetcher = HttpFetcher::new(self.auth)?;
+        let fetcher = HttpFetcher::with_client(self.index.http_client()?, self.auth);
         self.index.refresh_with(&fetcher, self.opts).await
     }
 }
@@ -1774,7 +1883,6 @@ mod tests {
     #[tokio::test]
     async fn graph_related_and_boost_roundtrip() {
         use crate::index::{Document, IndexBuilder};
-        use crate::metric::Metric;
         use crate::resource::ResourceKind;
         use crate::url_key::UrlKey;
 
@@ -1801,7 +1909,7 @@ mod tests {
                 pinned: false,
             }
         }
-        let mut b = IndexBuilder::new(1, Metric::Cosine, 0);
+        let mut b = IndexBuilder::new(1, crate::metric::Metric::Cosine, 0);
         b.upsert(node(
             "https://x.dev/hub",
             &["hub"],

@@ -168,3 +168,55 @@ jobs:
             cat coverage.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  objstore:
+    name: Object storage (link-r-objstore)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the objstore-r sibling
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.SIBLING_REPO_TOKEN || github.token }}@github.com/lituus-io/objstore-r.git" \
+            "$GITHUB_WORKSPACE/../objstore-r"
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: objstore
+          key: objstore
+      - name: Start fake-gcs-server
+        run: |
+          docker run -d --name fakegcs -p 4443:4443 fsouza/fake-gcs-server \
+            -scheme http -port 4443 -public-host 127.0.0.1:4443 -external-url http://127.0.0.1:4443
+          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:4443/storage/v1/b?project=test" && break; sleep 1; done
+      - name: Fmt, clippy, test (memory, local directory, GCS emulator)
+        working-directory: objstore
+        env:
+          OBJSTORE_FAKE_GCS: http://127.0.0.1:4443
+        run: |
+          cargo fmt --check
+          cargo clippy --all-features --all-targets
+          cargo test --all-features
+
+  semver:
+    name: Semver (additive only)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: semver
+      - name: API compatibility against the previous release tag
+        run: |
+          cur="v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')"
+          prev=$(git tag --sort=-v:refname --merged HEAD | grep -v "^$cur$" | head -1)
+          echo "baseline: $prev"
+          git worktree add "$GITHUB_WORKSPACE/../link-r-baseline" "$prev"
+          RUSTUP_TOOLCHAIN=stable cargo install cargo-semver-checks --locked
+          cargo semver-checks --baseline-root "$GITHUB_WORKSPACE/../link-r-baseline" --release-type minor
+          cargo semver-checks --baseline-root "$GITHUB_WORKSPACE/../link-r-baseline" --all-features --release-type minor

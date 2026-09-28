@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "link-r"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "compact_str",
@@ -478,6 +478,7 @@ dependencies = [
 name = "link-r-fuzz"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "libfuzzer-sys",
  "link-r",
 ]

@@ -57,6 +57,9 @@ jobs:
       # unbounded allocation.
       - name: Regression tests
         run: cargo test --features "$CI_FEATURES" --test regression
+      # Indexes written by 0.2.0 must read, save and re-serialize identically.
+      - name: Golden compatibility (0.2.0 fixture)
+        run: cargo test --test golden_v020
 
   panic-lints:
     name: Panic-path lints

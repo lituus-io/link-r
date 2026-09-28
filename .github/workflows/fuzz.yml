@@ -34,6 +34,7 @@ jobs:
           - fuzz_html_links
           - fuzz_index_loader
           - fuzz_url_canonicalize
+          - fuzz_index_from_bytes
     steps:
       - uses: actions/checkout@v4
 

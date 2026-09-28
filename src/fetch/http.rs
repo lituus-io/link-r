@@ -35,6 +35,19 @@ pub struct HttpFetcher<A: AuthProvider> {
     user_agent: CompactString,
 }
 
+/// The client [`HttpFetcher::new`] builds: rustls, a bounded redirect policy,
+/// connect/request timeouts. Built once per facade index and reused (its
+/// connection pool and TLS configuration with it) across runs.
+pub(crate) fn default_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(DEFAULT_UA)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
+        .build()
+        .map_err(|e| Error::backend("reqwest", e.to_string()))
+}
+
 impl<A: AuthProvider> HttpFetcher<A> {
     /// Build a fetcher with a default client: rustls, a bounded redirect policy,
     /// and connect/request timeouts.
@@ -42,13 +55,7 @@ impl<A: AuthProvider> HttpFetcher<A> {
     /// # Errors
     /// Returns [`Error::Backend`] if the HTTP client cannot be constructed.
     pub fn new(auth: A) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .user_agent(DEFAULT_UA)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
-            .build()
-            .map_err(|e| Error::backend("reqwest", e.to_string()))?;
+        let client = default_client()?;
         Ok(Self {
             client,
             auth,
