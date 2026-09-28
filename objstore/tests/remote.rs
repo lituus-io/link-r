@@ -170,6 +170,22 @@ async fn replicas_poll_with_one_metadata_request() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn replicas_refresh_in_place_keeping_their_embedder() {
+    let mem = Mem::default();
+    let writer = Remote::new(&mem, "kb").unwrap();
+    let mut index = corpus_index().await;
+    writer.publish(&index).await.unwrap();
+    let reader = Remote::new(&mem, "kb").unwrap();
+    let mut replica = reader.load().await.unwrap().unwrap();
+    assert!(!reader.load_if_changed_into(&mut replica).await.unwrap());
+    index.unpin("https://docs.example.com/guides/").unwrap();
+    writer.publish(&index).await.unwrap();
+    assert!(reader.load_if_changed_into(&mut replica).await.unwrap());
+    assert_eq!(golden::dump(&replica).await, golden::dump(&index).await);
+    assert!(!reader.load_if_changed_into(&mut replica).await.unwrap());
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn a_custom_embedder_round_trips_and_mismatches_are_refused() {
     let mem = Mem::default();
     let remote = Remote::new(&mem, "wide").unwrap();
@@ -238,4 +254,37 @@ async fn gcs_emulator_round_trip() {
     for m in gcs.list("kb/").await.unwrap() {
         gcs.delete(&m.key).await.unwrap();
     }
+}
+
+/// A real bucket through Application Default Credentials, under a unique
+/// `objstore-r-live/links-…` prefix that is deleted afterwards.
+#[cfg(feature = "gcs")]
+#[tokio::test(flavor = "current_thread")]
+async fn live_bucket_round_trip() {
+    let Ok(bucket) = std::env::var("OBJSTORE_LIVE_BUCKET") else {
+        eprintln!("OBJSTORE_LIVE_BUCKET unset: skipped");
+        return;
+    };
+    let adc = objstore_r::token::Adc::discover().unwrap();
+    let gcs = objstore_r::Gcs::new(&bucket, adc, objstore_r::GcsConfig::default()).unwrap();
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let prefix = format!("objstore-r-live/links-{}-{ms}", std::process::id());
+    let writer = Remote::new(&gcs, &prefix).unwrap();
+    let mut index = corpus_index().await;
+    writer.publish(&index).await.unwrap();
+    let reader = Remote::new(&gcs, &prefix).unwrap();
+    let mut replica = reader.load().await.unwrap().unwrap();
+    assert_eq!(golden::dump(&replica).await, golden::dump(&index).await);
+    assert!(!reader.load_if_changed_into(&mut replica).await.unwrap());
+    index.unpin("https://docs.example.com/guides/").unwrap();
+    writer.publish(&index).await.unwrap();
+    assert!(reader.load_if_changed_into(&mut replica).await.unwrap());
+    assert_eq!(golden::dump(&replica).await, golden::dump(&index).await);
+    for m in gcs.list(&format!("{prefix}/")).await.unwrap() {
+        gcs.delete(&m.key).await.unwrap();
+    }
+    assert!(gcs.list(&format!("{prefix}/")).await.unwrap().is_empty());
 }

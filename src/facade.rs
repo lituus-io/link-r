@@ -337,6 +337,22 @@ impl<E: Embedder> LinkIndex<E> {
         Ok(Self::from_opened(None, embedder, index))
     }
 
+    /// Replace this index's contents with an image (a newer published
+    /// version, say), keeping the embedder and any bound path. The image is
+    /// validated and checked against the embedder first; on error nothing
+    /// changes. Searches then run zero-copy over `bytes`.
+    ///
+    /// # Errors
+    /// Returns an error if the image is corrupt or was built with another
+    /// embedder.
+    pub fn reload_from_bytes(&mut self, bytes: Bytes) -> Result<()> {
+        let index = check_compatible(Index::from_bytes(bytes)?, &self.embedder, "in-memory image")?;
+        self.opened = Some(index);
+        self.builder = None;
+        self.cached = OnceLock::new();
+        Ok(())
+    }
+
     /// The embedder this index embeds queries and documents with.
     #[must_use]
     pub fn embedder(&self) -> &E {

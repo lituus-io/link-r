@@ -20,7 +20,9 @@ from bytes, save byte-identically, and re-serialize byte-identically
   bucket is searched without a temp file or a second copy.
 - New crate `objstore/` (**link-r-objstore**): `Remote::load`, `publish`
   (create-only generations + conditional `HEAD` swap; a racing publisher is
-  fenced), and `load_if_changed` (one metadata request when unchanged), over
+  fenced), `load_if_changed` / `load_if_changed_into` (one metadata request
+  when unchanged; the latter refreshes a replica in place), and
+  `load_or_empty_with` (a writer's first start), over
   objstore-r's GCS, local-directory and in-memory backends. Separate crate,
   so link-r's own manifest gains no dependency.
 
@@ -32,6 +34,8 @@ from bytes, save byte-identically, and re-serialize byte-identically
   the header's embedder-identity check still refuses a mismatched index.
   The update/refresh/GitHub builders follow the index's embedder.
 - `facade::default_embedder()` is public; `LinkIndex::embedder()`.
+- `LinkIndex::reload_from_bytes`: swap a newer image in place, keeping the
+  embedder (the replica refresh path).
 
 ### Performance and resources
 

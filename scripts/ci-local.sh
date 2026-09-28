@@ -45,6 +45,7 @@ trap '[ -n "$started" ] && docker rm -f linkr-ci-fakegcs >/dev/null 2>&1 || true
 step "link-r-objstore"
 [ -n "${OBJSTORE_FAKE_GCS:-}" ] || warn "no Docker: the GCS emulator test is skipped"
 (cd objstore && cargo clippy -q --all-features --all-targets && cargo test -q --all-features)
+[ -z "${OBJSTORE_LIVE_BUCKET:-}" ] || (cd objstore && cargo test -q --features gcs --test remote live_bucket_round_trip)
 
 step "fuzz (${FUZZ_SECS}s per target)"
 if have fuzz; then

@@ -227,6 +227,24 @@ impl<'o, O: ObjectStore> Remote<'o, O> {
         }
     }
 
+    /// [`Remote::load_with`], or an empty in-memory index with the same
+    /// embedder when nothing is published yet (a writer's first start).
+    /// The flag says whether an image was loaded.
+    pub fn load_or_empty_with<'a, E: Embedder + 'a>(
+        &'a self,
+        embedder: E,
+    ) -> impl Future<Output = Result<(LinkIndex<E>, bool)>> + 'a {
+        async move {
+            let Some(seen) = self.read_head().await? else {
+                return Ok((LinkIndex::in_memory_with(embedder), false));
+            };
+            let image = self.fetch_image(seen.head).await?;
+            let index = LinkIndex::from_bytes_with(image, embedder)?;
+            self.remember(Some(seen));
+            Ok((index, true))
+        }
+    }
+
     /// Like [`Remote::load_with`], but only when `HEAD` moved since this
     /// `Remote` last loaded or published — one metadata request otherwise.
     pub fn load_if_changed_with<'a, E: Embedder + 'a>(
@@ -240,6 +258,31 @@ impl<'o, O: ObjectStore> Remote<'o, O> {
                 (Some(m), Some(s)) if m.generation == s.head_gen => Ok(None),
                 _ => self.load_with(embedder).await,
             }
+        }
+    }
+
+    /// Replica refresh in place: when `HEAD` moved since this `Remote` last
+    /// loaded or published, swap the new image into `index` (keeping its
+    /// embedder; see [`LinkIndex::reload_from_bytes`]). One metadata request
+    /// when nothing changed. Returns whether `index` changed.
+    pub fn load_if_changed_into<'a, E: Embedder>(
+        &'a self,
+        index: &'a mut LinkIndex<E>,
+    ) -> impl Future<Output = Result<bool>> + 'a {
+        async move {
+            let meta = self.objects.head(&self.head_key()).await?;
+            match (meta, self.seen()) {
+                (None, _) => return Ok(false),
+                (Some(m), Some(s)) if m.generation == s.head_gen => return Ok(false),
+                _ => {}
+            }
+            let Some(seen) = self.read_head().await? else {
+                return Ok(false);
+            };
+            let image = self.fetch_image(seen.head).await?;
+            index.reload_from_bytes(image)?;
+            self.remember(Some(seen));
+            Ok(true)
         }
     }
 
