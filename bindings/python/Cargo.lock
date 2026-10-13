@@ -1326,36 +1326,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "link-r"
-version = "0.3.0"
-dependencies = [
- "async-stream",
- "bytes",
- "compact_str 0.8.2",
- "fastembed",
- "futures",
- "futures-timer",
- "memchr",
- "memmap2",
- "reqwest",
- "roaring",
- "scraper",
- "secrecy",
- "smallvec",
- "thiserror 1.0.69",
- "url",
- "walkdir",
- "xxhash-rust",
- "zstd",
-]
-
-[[package]]
 name = "link-r-python"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
- "link-r",
  "pyo3",
  "tokio",
+ "uu-link-r",
 ]
 
 [[package]]
@@ -3044,6 +3020,48 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uu-graph-r"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "memmap2",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "uu-link-r"
+version = "0.4.0"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "compact_str 0.8.2",
+ "fastembed",
+ "futures",
+ "futures-timer",
+ "memchr",
+ "reqwest",
+ "roaring",
+ "scraper",
+ "secrecy",
+ "smallvec",
+ "thiserror 1.0.69",
+ "url",
+ "uu-graph-r",
+ "uu-objstore-r",
+ "walkdir",
+ "zstd",
+]
+
+[[package]]
+name = "uu-objstore-r"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "thiserror 1.0.69",
+ "uu-graph-r",
+]
 
 [[package]]
 name = "v_frame"

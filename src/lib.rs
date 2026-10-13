@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! `link-r` — a tiny, embeddable crawl-and-resolve link index.
 //!
@@ -46,7 +46,7 @@
     any(feature = "crawl", feature = "fs", feature = "http", feature = "oauth"),
     feature(impl_trait_in_assoc_type)
 )]
-#![deny(unsafe_code)] // `deny`, not `forbid`, so the single `index::mmap` island can locally override.
+#![forbid(unsafe_code)] // the mmap island lives in graph-r
 #![deny(
     missing_docs,
     missing_debug_implementations,
@@ -70,6 +70,8 @@
 )]
 
 pub mod auth;
+#[cfg(feature = "graph")]
+pub mod bridge;
 pub mod embed;
 pub mod error;
 pub mod extract;
@@ -77,9 +79,13 @@ pub mod extract;
 pub mod facade;
 pub mod fetch;
 pub mod index;
+#[cfg(feature = "kb")]
+pub mod kb;
 pub mod metric;
 pub mod payload;
 pub mod query;
+#[cfg(feature = "remote")]
+pub mod remote;
 pub mod resource;
 pub mod source;
 pub mod text;
@@ -96,7 +102,7 @@ pub use payload::{ByteStream, DocPayload, MmapView};
 pub use query::{Fusion, Hit, Hits, PreparedQuery, RankParams};
 pub use resource::{DocId, Page, Resource, ResourceKind, SourceRef};
 pub use source::Source;
-pub use url_key::{canonicalize, UrlKey};
+pub use url_key::{canonicalize, UrlKey, UrlKeyExt};
 // `url::Url` appears in this crate's own public signatures (crawl scopes,
 // `UpdateBuilder::known_edges`), so consumers need the exact same version --
 // re-exporting it keeps one source of truth instead of a version-sync hazard.
@@ -121,7 +127,7 @@ pub mod prelude {
     pub use crate::index::{Document, Filter, Index, IndexBuilder, UpsertOutcome};
     pub use crate::query::{Hit, Hits, PreparedQuery, RankParams};
     pub use crate::resource::{Resource, ResourceKind, SourceRef};
-    pub use crate::url_key::UrlKey;
+    pub use crate::url_key::{UrlKey, UrlKeyExt};
 
     #[cfg(feature = "crawl")]
     pub use crate::facade::{LinkIndex, SearchResult, UpdateReport};

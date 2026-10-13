@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! URL canonicalization and the [`UrlKey`] dedup/uniqueness key.
 //!
@@ -17,13 +17,13 @@
 //! - sort query segments lexically (treated as opaque, not re-encoded),
 //! - strip a single trailing `/` except on the root path.
 
+pub use graph_r::UrlKey;
 use smallvec::SmallVec;
 use url::Url;
-use xxhash_rust::xxh3::Xxh3;
 
 /// Emit the canonical form of `url` as a sequence of `&str` chunks — the single
 /// source of truth shared by [`canonicalize`] (which concatenates the chunks into
-/// a `String`) and [`UrlKey::from_url`] (which streams them through an `xxh3`
+/// a `String`) and [`UrlKeyExt::from_url`] (which streams them through an `xxh3`
 /// hasher). Because both consume the *same* emission, the key is identical to
 /// `xxh3_64(canonicalize(url).as_bytes())` by construction — a property the
 /// persisted on-disk keys depend on (see the `streaming_hash_matches_string`
@@ -109,38 +109,30 @@ pub fn canonicalize(url: &Url) -> String {
     s
 }
 
-/// A 64-bit content-addressed key for a canonical URL.
-///
-/// Two URLs that canonicalize to the same string share a `UrlKey`; this is the
-/// uniqueness key the index uses to upsert (never duplicate) links.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct UrlKey(pub u64);
+/// Keying URLs: [`UrlKey`] is graph-r's (xxh3 of the canonical URL), so a
+/// link-r key and a graph-r node key for the same page are the same value.
+/// Two URLs that canonicalize to the same string share a key — the index
+/// upserts, never duplicates, links.
+pub trait UrlKeyExt: Sized {
+    /// The key of a parsed URL: its canonical chunks streamed through xxh3
+    /// (no intermediate `String`), equal to
+    /// `UrlKey::of(&canonicalize(url))`.
+    fn from_url(url: &Url) -> Self;
+    /// Parse a URL string and key it.
+    fn parse(url: &str) -> crate::Result<Self>;
+}
 
-impl UrlKey {
-    /// Compute the key from a parsed URL.
-    ///
-    /// Streams the canonical chunks straight through an `xxh3` hasher — no
-    /// intermediate `String` — yielding a value identical to
-    /// `xxh3_64(canonicalize(url).as_bytes())` (asserted by tests, and relied on
-    /// by the persisted on-disk keys).
-    #[must_use]
-    pub fn from_url(url: &Url) -> Self {
-        let mut h = Xxh3::new();
+impl UrlKeyExt for UrlKey {
+    fn from_url(url: &Url) -> Self {
+        let mut h = graph_r::hash::Hasher::new();
         canonical_chunks(url, &mut |c| h.update(c.as_bytes()));
-        Self(h.digest())
+        Self(h.digest64())
     }
 
-    /// Parse a URL string and compute its key.
-    pub fn parse(url: &str) -> crate::Result<Self> {
+    fn parse(url: &str) -> crate::Result<Self> {
         let parsed =
             Url::parse(url).map_err(|e| crate::Error::invalid_url(format!("{url:?}: {e}")))?;
         Ok(Self::from_url(&parsed))
-    }
-
-    /// The raw 64-bit value (for on-disk persistence).
-    #[must_use]
-    pub fn raw(self) -> u64 {
-        self.0
     }
 }
 
@@ -214,7 +206,6 @@ mod tests {
     #[test]
     fn streaming_hash_matches_string() {
         // The persisted key contract: from_url must equal xxh3_64(canonicalize()).
-        use xxhash_rust::xxh3::xxh3_64;
         for s in [
             "HTTP://Example.com:80/docs/?b=2&a=1#frag",
             "https://x.dev",
@@ -227,7 +218,7 @@ mod tests {
             let u = Url::parse(s).unwrap();
             assert_eq!(
                 UrlKey::from_url(&u).raw(),
-                xxh3_64(canonicalize(&u).as_bytes()),
+                UrlKey::of(&canonicalize(&u)).raw(),
                 "streaming hash diverged for {s:?}"
             );
         }

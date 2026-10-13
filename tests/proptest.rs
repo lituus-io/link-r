@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Property-based tests: invariants that must hold for arbitrary inputs.
 
@@ -9,6 +9,7 @@ use link_r::metric::Metric;
 use link_r::query::{PreparedQuery, RankParams};
 use link_r::resource::ResourceKind;
 use link_r::url_key::{canonicalize, UrlKey};
+use link_r::UrlKeyExt as _;
 use link_r::{Document, Filter, Index};
 use proptest::prelude::*;
 use url::Url;

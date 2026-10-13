@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! THE critical fuzz target: the index loader must never panic or trigger UB on
 //! arbitrary bytes — it sits in front of the mmap + `&[f32]` reinterpret island.
@@ -18,5 +18,5 @@ fuzz_target!(|data: &[u8]| {
     // The link-graph edge decoder must also reject garbage without panic/OOM.
     let _ = link_r::index::graph::decode(data);
     // The cast helper must reject mis-sized/misaligned input rather than UB.
-    let _ = link_r::index::mmap::cast_f32(data);
+    let _ = graph_r::mmap::cast_f32(data);
 });

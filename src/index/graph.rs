@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The persisted link graph — the "paths" of the knowledge graph.
 //!
@@ -11,9 +11,9 @@
 //! which powers `related()` and the optional one-hop score boost during search.
 
 use crate::error::{Error, Result};
-use crate::index::bytesio::{put_u32, put_u64, Reader};
 use crate::resource::DocId;
 use crate::url_key::UrlKey;
+use graph_r::bytesio::{put_u32, put_u64, Reader};
 use smallvec::SmallVec;
 use std::collections::HashMap;
 

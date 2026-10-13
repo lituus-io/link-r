@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Copyright: lituus-io, all rights reserved.
-# Author: terekete <spicyzhug@gmail.com>
+# Author: support@lituus.io
+# Copyright: lituus-io, all rights reserved
 #
 # Run link-r's CI gates locally, in CI order: fmt, clippy, feature matrix,
-# docs, every test suite (incl. the 0.2.0 golden fixture), the Python wheel
-# and its pytest suite, link-r-objstore (memory, local directory and the GCS
-# emulator when Docker is available), benches in test mode, short fuzz runs,
+# docs, every test suite (incl. the 0.4.0 golden fixture), the Python wheel
+# and its pytest suite, the remote/graph/kb features (memory, local directory
+# and the GCS emulator when Docker is available), benches in test mode, short fuzz runs,
 # supply-chain checks and a semver check against the previous tag.
-# Expects the ../objstore-r sibling. Never touches the cloud.
+# Expects the ../graph-r and ../objstore-r siblings (scripts/fetch-siblings.sh). Never touches the cloud.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export RUSTFLAGS="${RUSTFLAGS:--D warnings}"
@@ -16,7 +16,7 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 warn() { printf '\033[33mskip: %s\033[0m\n' "$*"; }
 have() { cargo "$1" --version >/dev/null 2>&1; }
 
-step fmt; cargo fmt --check; (cd objstore && cargo fmt --check)
+step fmt; cargo fmt --check
 step clippy; cargo clippy -q --all-targets; cargo clippy -q --all-features --all-targets
 step "feature matrix"
 for f in "" hash markdown html http crawl fs github oauth robots quant parallel "crawl,github,quant"; do
@@ -42,10 +42,11 @@ if [ -z "${OBJSTORE_FAKE_GCS:-}" ] && command -v docker >/dev/null 2>&1 && docke
   export OBJSTORE_FAKE_GCS=http://127.0.0.1:4446
 fi
 trap '[ -n "$started" ] && docker rm -f linkr-ci-fakegcs >/dev/null 2>&1 || true' EXIT
-step "link-r-objstore"
+step "remote, graph, kb"
 [ -n "${OBJSTORE_FAKE_GCS:-}" ] || warn "no Docker: the GCS emulator test is skipped"
-(cd objstore && cargo clippy -q --all-features --all-targets && cargo test -q --all-features)
-[ -z "${OBJSTORE_LIVE_BUCKET:-}" ] || (cd objstore && cargo test -q --features gcs --test remote live_bucket_round_trip)
+COMPOSE="hash,markdown,html,http,crawl,fs,github,oauth,robots,quant,parallel,remote,gcs,graph,kb"
+cargo clippy -q --features "$COMPOSE" --all-targets && cargo test -q --features "$COMPOSE"
+[ -z "${OBJSTORE_LIVE_BUCKET:-}" ] || cargo test -q --features "$COMPOSE" --test remote live_bucket_round_trip
 
 step "fuzz (${FUZZ_SECS}s per target)"
 if have fuzz; then
@@ -55,7 +56,7 @@ if have fuzz; then
 else warn "cargo-fuzz not installed"; fi
 
 step "supply chain"
-if have deny; then cargo deny check; (cd objstore && cargo deny check --config ../deny.toml); else warn "cargo-deny not installed"; fi
+if have deny; then cargo deny check; else warn "cargo-deny not installed"; fi
 if have audit; then cargo audit; else warn "cargo-audit not installed"; fi
 
 step "semver vs previous tag"
@@ -65,8 +66,8 @@ if have semver-checks; then
   base="$(cd .. && pwd)/.link-r-semver-baseline"
   git worktree remove --force "$base" >/dev/null 2>&1 || rm -rf "$base"
   git worktree add -q --detach "$base" "$prev"
-  cargo semver-checks --baseline-root "$base" --release-type minor
-  cargo semver-checks --baseline-root "$base" --all-features --release-type minor
+  cargo semver-checks --baseline-root "$base"
+  cargo semver-checks --baseline-root "$base" --all-features
   git worktree remove --force "$base"
 else warn "cargo-semver-checks not installed"; fi
 

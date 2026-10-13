@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Error and result types for `link-r`.
 //!
@@ -130,6 +130,17 @@ pub enum Error {
     },
 }
 
+/// graph-r core (byte codecs, container, mmap) reports malformed images as
+/// format errors; its I/O stays I/O.
+impl From<graph_r::Error> for Error {
+    fn from(e: graph_r::Error) -> Self {
+        match e {
+            graph_r::Error::Io { source } => Self::Io { source },
+            other => Self::format(other.to_string()),
+        }
+    }
+}
+
 impl Error {
     /// Construct a [`Error::NotFound`].
     #[must_use]
@@ -233,7 +244,7 @@ impl Error {
     pub fn is_retriable(&self) -> bool {
         match self {
             Self::Timeout { .. } | Self::RateLimited { .. } => true,
-            Self::Http { status, .. } => matches!(status, 408 | 429 | 500 | 502 | 503 | 504),
+            Self::Http { status, .. } => objstore_r::net::is_retriable_status(*status),
             Self::Io { source } => matches!(
                 source.kind(),
                 std::io::ErrorKind::ConnectionReset

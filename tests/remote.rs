@@ -1,13 +1,13 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Publishing and loading link-r indexes through objstore-r backends.
 
-#[path = "../../tests/support/golden.rs"]
+#[path = "support/golden.rs"]
 mod golden;
 
+use link_r::remote::{Error, Remote};
 use link_r::{HashEmbedder, LinkIndex, SourceRef};
-use link_r_objstore::{Error, Remote};
 use objstore_r::mem::Fault;
 use objstore_r::{Bytes, Cond, LocalDir, Mem, ObjectStore};
 
@@ -219,28 +219,10 @@ fn prefixes_are_validated() {
 #[cfg(feature = "gcs")]
 #[tokio::test(flavor = "current_thread")]
 async fn gcs_emulator_round_trip() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let Ok(endpoint) = std::env::var("OBJSTORE_FAKE_GCS") else {
+    let Some(gcs) = objstore_r::testing::emulator_bucket(4096).await else {
         eprintln!("OBJSTORE_FAKE_GCS unset: skipped");
         return;
     };
-    let bucket = format!("linkr-{}", std::process::id());
-    let hostport = endpoint.trim_start_matches("http://").to_owned();
-    let mut s = tokio::net::TcpStream::connect(&hostport).await.unwrap();
-    let body = format!("{{\"name\":\"{bucket}\"}}");
-    let req = format!(
-        "POST /storage/v1/b?project=test HTTP/1.1\r\nhost: {hostport}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    s.write_all(req.as_bytes()).await.unwrap();
-    let mut sink = Vec::new();
-    let _ = s.read_to_end(&mut sink).await;
-    let cfg = objstore_r::GcsConfig {
-        endpoint,
-        resumable_threshold: 4096,
-        ..objstore_r::GcsConfig::default()
-    };
-    let gcs = objstore_r::Gcs::new(&bucket, objstore_r::token::Static::none(), cfg).unwrap();
     let remote = Remote::new(&gcs, "kb").unwrap();
     let index = corpus_index().await;
     remote.publish(&index).await.unwrap();
@@ -261,17 +243,11 @@ async fn gcs_emulator_round_trip() {
 #[cfg(feature = "gcs")]
 #[tokio::test(flavor = "current_thread")]
 async fn live_bucket_round_trip() {
-    let Ok(bucket) = std::env::var("OBJSTORE_LIVE_BUCKET") else {
+    let Some(gcs) = objstore_r::testing::live_bucket() else {
         eprintln!("OBJSTORE_LIVE_BUCKET unset: skipped");
         return;
     };
-    let adc = objstore_r::token::Adc::discover().unwrap();
-    let gcs = objstore_r::Gcs::new(&bucket, adc, objstore_r::GcsConfig::default()).unwrap();
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let prefix = format!("objstore-r-live/links-{}-{ms}", std::process::id());
+    let prefix = objstore_r::testing::unique("objstore-r-live/links");
     let writer = Remote::new(&gcs, &prefix).unwrap();
     let mut index = corpus_index().await;
     writer.publish(&index).await.unwrap();
@@ -283,8 +259,16 @@ async fn live_bucket_round_trip() {
     writer.publish(&index).await.unwrap();
     assert!(reader.load_if_changed_into(&mut replica).await.unwrap());
     assert_eq!(golden::dump(&replica).await, golden::dump(&index).await);
-    for m in gcs.list(&format!("{prefix}/")).await.unwrap() {
-        gcs.delete(&m.key).await.unwrap();
-    }
-    assert!(gcs.list(&format!("{prefix}/")).await.unwrap().is_empty());
+    // A second publisher from the old state is fenced on the live bucket too.
+    let stale = Remote::new(&gcs, &prefix).unwrap();
+    let _ = stale.load().await.unwrap();
+    index.pin("https://docs.example.com/guides/").unwrap();
+    writer.publish(&index).await.unwrap();
+    let mut other = corpus_index().await;
+    other.unpin("https://docs.example.com/guides/").unwrap();
+    assert!(matches!(
+        stale.publish(&other).await,
+        Err(link_r::remote::Error::Fenced { .. })
+    ));
+    objstore_r::testing::clean(&gcs, &prefix).await.unwrap();
 }

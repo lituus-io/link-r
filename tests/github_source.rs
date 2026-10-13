@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The GitHub tree-API sync, end to end through the facade, against a
 //! loopback fake GitHub (tree JSON on the "API host", file bytes on the

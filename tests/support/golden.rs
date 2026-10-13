@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Shared by the golden-fixture generator (run once against the released
 //! 0.2.0 code) and `tests/golden_v020.rs` (run against every later version):

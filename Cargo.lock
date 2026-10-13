@@ -486,6 +486,7 @@ dependencies = [
  "ciborium",
  "clap",
  "criterion-plot",
+ "futures",
  "is-terminal",
  "itertools 0.10.5",
  "num-traits",
@@ -498,6 +499,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tinytemplate",
+ "tokio",
  "walkdir",
 ]
 
@@ -1507,39 +1509,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "link-r"
-version = "0.3.0"
-dependencies = [
- "arc-swap",
- "async-stream",
- "bytes",
- "compact_str 0.8.2",
- "criterion",
- "fastembed",
- "futures",
- "futures-timer",
- "memchr",
- "memmap2",
- "proptest",
- "rayon",
- "reqwest",
- "roaring",
- "scraper",
- "secrecy",
- "serde",
- "serde_json",
- "smallvec",
- "tempfile",
- "texting_robots",
- "thiserror 1.0.69",
- "tokio",
- "url",
- "walkdir",
- "xxhash-rust",
- "zstd",
 ]
 
 [[package]]
@@ -3314,6 +3283,65 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uu-graph-r"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "compact_str 0.8.2",
+ "memmap2",
+ "smallvec",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "uu-link-r"
+version = "0.4.0"
+dependencies = [
+ "arc-swap",
+ "async-stream",
+ "bytes",
+ "compact_str 0.8.2",
+ "criterion",
+ "fastembed",
+ "futures",
+ "futures-timer",
+ "futures-util",
+ "memchr",
+ "proptest",
+ "rayon",
+ "reqwest",
+ "roaring",
+ "scraper",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tempfile",
+ "texting_robots",
+ "thiserror 1.0.69",
+ "tokio",
+ "url",
+ "uu-graph-r",
+ "uu-objstore-r",
+ "walkdir",
+ "zstd",
+]
+
+[[package]]
+name = "uu-objstore-r"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "uu-graph-r",
+]
 
 [[package]]
 name = "v_frame"

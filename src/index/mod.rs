@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The hybrid index: on-disk format, zero-copy store, retrieval, and incremental
 //! upsert.
@@ -10,17 +10,14 @@
 //! exact path is recall-validated.
 
 pub mod builder;
-pub mod bytesio;
 pub mod dense;
 pub mod format;
 pub mod fuse;
 pub mod graph;
 pub mod meta;
-pub mod mmap;
 #[cfg(feature = "quant")]
 pub mod quant;
 pub mod sparse;
-pub mod writer;
 
 pub use builder::{Document, IndexBuilder, UpsertOutcome};
 pub use meta::{DocMeta, Filter};
@@ -28,12 +25,12 @@ pub use meta::{DocMeta, Filter};
 use crate::error::{Error, Result};
 use crate::index::format::{flags, Header, IndexFile, IndexWriter, SectionKind};
 use crate::index::graph::Graph;
-use crate::index::mmap::MappedFile;
 use crate::index::sparse::Bm25;
 use crate::metric::Metric;
 use crate::query::{Fusion, Hits, PreparedQuery};
 use crate::resource::DocId;
 use crate::url_key::UrlKey;
+use graph_r::mmap::{cast_f32, MappedFile};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -42,16 +39,10 @@ use std::path::Path;
 enum Backing {
     /// Owned f32 vectors (in-memory build).
     Owned(Vec<f32>),
-    /// A zero-copy range into a memory-mapped file.
-    Mapped {
+    /// A zero-copy range into an image: a memory-mapped file, or shared bytes
+    /// (from [`Index::from_bytes`], only when the range is `f32`-aligned).
+    Image {
         file: MappedFile,
-        dense_off: usize,
-        dense_len: usize,
-    },
-    /// A zero-copy range into shared bytes (from [`Index::from_bytes`]); only
-    /// used when that range is `f32`-aligned in memory.
-    Shared {
-        bytes: bytes::Bytes,
         dense_off: usize,
         dense_len: usize,
     },
@@ -63,8 +54,7 @@ impl Backing {
     fn image(&self) -> Option<&[u8]> {
         match self {
             Backing::Owned(_) => None,
-            Backing::Mapped { file, .. } => Some(file.bytes()),
-            Backing::Shared { bytes, .. } => Some(bytes),
+            Backing::Image { file, .. } => Some(file.bytes()),
         }
     }
 }
@@ -182,16 +172,13 @@ impl Index {
     pub fn dense(&self) -> Result<&[f32]> {
         match &self.backing {
             Backing::Owned(v) => Ok(v),
-            Backing::Mapped {
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
-            } => mmap::cast_f32(&file.bytes()[*dense_off..*dense_off + *dense_len]),
-            Backing::Shared {
-                bytes,
-                dense_off,
-                dense_len,
-            } => mmap::cast_f32(&bytes[*dense_off..*dense_off + *dense_len]),
+            } => Ok(cast_f32(
+                &file.bytes()[*dense_off..*dense_off + *dense_len],
+            )?),
         }
     }
 
@@ -201,12 +188,12 @@ impl Index {
     /// Returns [`Error::Format`] on a corrupt/incompatible file, or [`Error::Io`]
     /// if the file cannot be opened.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let file = MappedFile::open(path)?;
+        let file = MappedFile::open(path.as_ref())?;
         let p = Self::parse(file.bytes())?;
         let (dense_off, dense_len) = (p.dense_off, p.dense_len);
         let index = Self::assemble(
             p,
-            Backing::Mapped {
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
@@ -229,9 +216,9 @@ impl Index {
         let p = Self::parse(&bytes)?;
         let (dense_off, dense_len) = (p.dense_off, p.dense_len);
         let range = &bytes[dense_off..dense_off + dense_len];
-        let backing = if mmap::cast_f32(range).is_ok() {
-            Backing::Shared {
-                bytes,
+        let backing = if cast_f32(range).is_ok() {
+            Backing::Image {
+                file: MappedFile::from_bytes(bytes),
                 dense_off,
                 dense_len,
             }
@@ -273,13 +260,16 @@ impl Index {
         let dim = h.dim as usize;
         let doc_count = h.doc_count as usize;
 
-        let (doff, dlen) = parsed
-            .section_range(SectionKind::Dense)
-            .ok_or_else(|| Error::format("missing dense section"))?;
         let expected = doc_count
             .checked_mul(dim)
             .and_then(|n| n.checked_mul(std::mem::size_of::<f32>()))
             .ok_or_else(|| Error::format("dense size overflow"))?;
+        // An empty dense blob is omitted from the file (absent reads as empty).
+        let (doff, dlen) = match parsed.section_range(SectionKind::Dense) {
+            Some(r) => r,
+            None if expected == 0 => (0, 0),
+            None => return Err(Error::format("missing dense section")),
+        };
         if dlen != expected {
             return Err(Error::format("dense section size mismatch"));
         }
@@ -353,7 +343,7 @@ impl Index {
         // Unmutated since load: the original image is already the answer
         // (no decode/re-encode, no zstd pass).
         if let Some(image) = self.backing.image() {
-            return writer::atomic_write(path, image);
+            return Ok(graph_r::fsio::write_atomic(path.as_ref(), &[image])?);
         }
         let bytes = serialize_sections(
             self.dim,
@@ -364,7 +354,7 @@ impl Index {
             &self.edges,
             &self.bm25,
         );
-        writer::atomic_write(path, &bytes)
+        Ok(graph_r::fsio::write_atomic(path.as_ref(), &[&bytes])?)
     }
 
     /// Convert into a mutable builder for incremental upserts.
@@ -376,16 +366,11 @@ impl Index {
         let (k1, b) = (self.bm25.k1(), self.bm25.b());
         let dense = match self.backing {
             Backing::Owned(v) => v,
-            Backing::Mapped {
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
-            } => mmap::cast_f32(&file.bytes()[dense_off..dense_off + dense_len])?.to_vec(),
-            Backing::Shared {
-                bytes,
-                dense_off,
-                dense_len,
-            } => mmap::cast_f32(&bytes[dense_off..dense_off + dense_len])?.to_vec(),
+            } => cast_f32(&file.bytes()[dense_off..dense_off + dense_len])?.to_vec(),
         };
         Ok(IndexBuilder::from_parts(
             self.dim,
@@ -505,12 +490,10 @@ pub(crate) fn serialize_sections(
                 0
             }
             | if has_edges { flags::LINK_GRAPH } else { 0 },
-        section_count: 0,
         dim: dim as u32,
         doc_count: docs.len() as u32,
         metric: metric.as_tag(),
         embedder_id,
-        total_len: 0,
         bm25_k1_bits: bm25.k1().to_bits(),
         bm25_b_bits: bm25.b().to_bits(),
         avgdl_bits: bm25.avgdl().to_bits(),

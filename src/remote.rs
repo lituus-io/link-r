@@ -1,9 +1,9 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
-//! # link-r-objstore
+//! Object storage for indexes (feature `remote`).
 //!
-//! Keep a [link-r](link_r) index on an object store — Google Cloud Storage, a
+//! Keep an index on an object store — Google Cloud Storage, a
 //! local directory, or memory — through objstore-r's [`ObjectStore`] trait.
 //!
 //! ```text
@@ -23,28 +23,19 @@
 //! Futures are unboxed (`impl Future` over borrowed state); no `Arc`, no
 //! `dyn`; the internal `Mutex` is never held across an `.await`.
 
-#![forbid(unsafe_code)]
-#![deny(
-    missing_docs,
-    missing_debug_implementations,
-    rust_2018_idioms,
-    unreachable_pub
-)]
-#![warn(clippy::all, clippy::pedantic)]
-#![allow(clippy::module_name_repetitions, clippy::missing_errors_doc)]
+pub use objstore_r::ObjectStore;
 
-pub use objstore_r::{self, ObjectStore};
-
-use link_r::facade::DefaultEmbedder;
-use link_r::{Embedder, LinkIndex};
-use objstore_r::{Bytes, Cond};
+use crate::facade::DefaultEmbedder;
+use crate::{Embedder, LinkIndex};
+use graph_r::hash::xxh3_64;
+use objstore_r::{fenced, Bytes};
 use std::future::Future;
 use std::sync::{Mutex, PoisonError};
-use xxhash_rust::xxh3::xxh3_64;
 
 const MAGIC: u32 = 0x4D52_4E4C; // "LNRM"
 const VERSION: u16 = 1;
-const HEAD_LEN: usize = 40;
+/// `HEAD`'s sealed body: generation, length and checksum of the image.
+const HEAD_BODY: usize = 24;
 
 /// Result alias.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -55,10 +46,10 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum Error {
     /// The index failed to load or serialize.
     #[error(transparent)]
-    Link(#[from] link_r::Error),
+    Link(#[from] crate::Error),
     /// The object store failed.
     #[error("object store: {0}")]
-    Store(#[from] objstore_r::Error),
+    Store(objstore_r::Error),
     /// Another publisher swapped `HEAD` first. Reload before publishing.
     #[error("fenced: {reason}")]
     Fenced {
@@ -73,9 +64,14 @@ pub enum Error {
     },
 }
 
-fn corrupt(message: impl Into<String>) -> Error {
-    Error::Corrupt {
-        message: message.into(),
+/// The fenced-publish outcomes keep their own variants.
+impl From<objstore_r::Error> for Error {
+    fn from(e: objstore_r::Error) -> Self {
+        match e {
+            objstore_r::Error::Fenced { reason } => Self::Fenced { reason },
+            objstore_r::Error::Corrupt { message } => Self::Corrupt { message },
+            other => Self::Store(other),
+        }
     }
 }
 
@@ -101,35 +97,34 @@ struct Head {
 
 impl Head {
     fn encode(self) -> Vec<u8> {
-        let mut o = Vec::with_capacity(HEAD_LEN);
-        o.extend_from_slice(&MAGIC.to_le_bytes());
-        o.extend_from_slice(&VERSION.to_le_bytes());
-        o.extend_from_slice(&0u16.to_le_bytes());
-        o.extend_from_slice(&self.generation.to_le_bytes());
-        o.extend_from_slice(&self.len.to_le_bytes());
-        o.extend_from_slice(&self.sum.to_le_bytes());
-        let t = xxh3_64(&o);
-        o.extend_from_slice(&t.to_le_bytes());
-        o
+        let mut body = Vec::with_capacity(HEAD_BODY);
+        body.extend_from_slice(&self.generation.to_le_bytes());
+        body.extend_from_slice(&self.len.to_le_bytes());
+        body.extend_from_slice(&self.sum.to_le_bytes());
+        fenced::seal(MAGIC, VERSION, &body)
     }
 
     fn decode(b: &[u8]) -> Result<Self> {
-        let u64_at = |i: usize| u64::from_le_bytes(b[i..i + 8].try_into().unwrap_or_default());
-        if b.len() != HEAD_LEN || xxh3_64(&b[..HEAD_LEN - 8]) != u64_at(HEAD_LEN - 8) {
-            return Err(corrupt("HEAD fails its checksum"));
+        let body = fenced::unseal(b, MAGIC, VERSION)?;
+        if body.len() != HEAD_BODY {
+            return Err(Error::Corrupt {
+                message: "HEAD has the wrong length".into(),
+            });
         }
-        if u32::from_le_bytes([b[0], b[1], b[2], b[3]]) != MAGIC
-            || u16::from_le_bytes([b[4], b[5]]) != VERSION
-        {
-            return Err(corrupt("HEAD has an unknown magic or version"));
-        }
+        let u64_at = |i: usize| {
+            let mut a = [0u8; 8];
+            a.copy_from_slice(&body[i..i + 8]);
+            u64::from_le_bytes(a)
+        };
         let head = Self {
-            generation: u64_at(8),
-            len: u64_at(16),
-            sum: u64_at(24),
+            generation: u64_at(0),
+            len: u64_at(8),
+            sum: u64_at(16),
         };
         if head.generation == 0 {
-            return Err(corrupt("HEAD names generation 0"));
+            return Err(Error::Corrupt {
+                message: "HEAD names generation 0".into(),
+            });
         }
         Ok(head)
     }
@@ -153,13 +148,7 @@ pub struct Remote<'o, O: ObjectStore> {
 impl<'o, O: ObjectStore> Remote<'o, O> {
     /// An index under `prefix` (empty, or a key prefix; `/` implied).
     pub fn new(objects: &'o O, prefix: &str) -> Result<Self> {
-        let prefix = prefix.trim_end_matches('/');
-        let prefix = if prefix.is_empty() {
-            String::new()
-        } else {
-            format!("{prefix}/")
-        };
-        objstore_r::Key::parse(&format!("{prefix}HEAD"))?;
+        let prefix = fenced::prefix(prefix)?;
         Ok(Self {
             objects,
             prefix,
@@ -194,15 +183,7 @@ impl<'o, O: ObjectStore> Remote<'o, O> {
 
     async fn fetch_image(&self, head: Head) -> Result<Bytes> {
         let key = self.index_key(head.generation);
-        let obj = self
-            .objects
-            .get(&key)
-            .await?
-            .ok_or_else(|| corrupt(format!("{key} is missing")))?;
-        if obj.bytes.len() as u64 != head.len || xxh3_64(&obj.bytes) != head.sum {
-            return Err(corrupt(format!("{key} does not match HEAD")));
-        }
-        Ok(obj.bytes)
+        Ok(fenced::fetch_verified(self.objects, &key, head.len, head.sum).await?)
     }
 
     /// The published generation, if any (reads `HEAD`).
@@ -316,33 +297,18 @@ impl<'o, O: ObjectStore> Remote<'o, O> {
                 sum,
             };
             let key = self.index_key(head.generation);
-            match self
-                .objects
-                .put(&key, Bytes::from(image), Cond::CreateOnly)
+            fenced::put_immutable(self.objects, &key, Bytes::from(image))
                 .await
-            {
-                Ok(_) => {}
-                Err(objstore_r::Error::Conflict) => match self.objects.get(&key).await? {
-                    Some(o) if xxh3_64(&o.bytes) == sum => {}
-                    _ => return Err(self.fenced("another publisher took this generation")),
-                },
-                Err(e) => return Err(e.into()),
-            }
+                .map_err(|e| self.forget(e))?;
             let body = Bytes::from(head.encode());
-            let cond = prev.map_or(Cond::CreateOnly, |p| Cond::IfGeneration(p.head_gen));
-            let head_gen = match self.objects.put(&self.head_key(), body.clone(), cond).await {
-                Ok(g) => g,
-                Err(objstore_r::Error::Conflict | objstore_r::Error::PreconditionFailed) => {
-                    match self.objects.get(&self.head_key()).await? {
-                        Some(o) if o.bytes == body => o.generation,
-                        _ => return Err(self.fenced("another publisher swapped HEAD first")),
-                    }
-                }
-                Err(e) => {
-                    self.remember(None);
-                    return Err(e.into());
-                }
-            };
+            let head_gen = fenced::cas(
+                self.objects,
+                &self.head_key(),
+                prev.map(|p| p.head_gen),
+                body,
+            )
+            .await
+            .map_err(|e| self.forget(e))?;
             self.remember(Some(Seen { head_gen, head }));
             if let Some(p) = prev {
                 let _ = self
@@ -359,9 +325,10 @@ impl<'o, O: ObjectStore> Remote<'o, O> {
         }
     }
 
-    fn fenced(&self, reason: &'static str) -> Error {
+    /// A failed publish leaves `HEAD` unknown: re-read before the next one.
+    fn forget(&self, e: objstore_r::Error) -> Error {
         self.remember(None);
-        Error::Fenced { reason }
+        e.into()
     }
 }
 
@@ -384,7 +351,7 @@ impl<O: ObjectStore> Remote<'_, O> {
 }
 
 fn default_embedder() -> Result<DefaultEmbedder> {
-    Ok(link_r::facade::default_embedder()?)
+    Ok(crate::facade::default_embedder()?)
 }
 
 #[cfg(test)]
@@ -405,7 +372,7 @@ mod tests {
             c[i] ^= 1;
             assert!(Head::decode(&c).is_err(), "flip at {i}");
         }
-        assert!(Head::decode(&b[..HEAD_LEN - 1]).is_err());
+        assert!(Head::decode(&b[..b.len() - 1]).is_err());
         assert!(Head::decode(&Head { generation: 0, ..h }.encode()).is_err());
     }
 }

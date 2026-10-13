@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! [`LinkIndex`] — the dead-simple, three-verb API over the trait layer, plus the
 //! knowledge-base lifecycle (persist, refresh after a TTL, retention).
@@ -50,14 +50,15 @@ use crate::index::{Index, IndexBuilder, UpsertOutcome};
 use crate::query::{PreparedQuery, RankParams};
 use crate::resource::{Resource, ResourceKind, SourceRef};
 use crate::source::{CrawlScope, CrawlSource, Source};
+use crate::url_key::UrlKeyExt as _;
 use crate::{text, Filter};
 use bytes::Bytes;
 use compact_str::CompactString;
 use futures::stream::{FuturesUnordered, StreamExt};
+use graph_r::hash::xxh3_64;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use xxhash_rust::xxh3::xxh3_64;
+use std::time::Duration;
 
 /// The embedder the facade uses by default.
 #[cfg(feature = "onnx")]
@@ -96,12 +97,7 @@ pub fn default_embedder() -> Result<DefaultEmbedder> {
     Ok(crate::embed::HashEmbedder::new(HASH_DIM))
 }
 
-/// Milliseconds since the Unix epoch (0 if the clock is before the epoch).
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
+use graph_r::fsio::now_ms;
 
 /// One exported document: its metadata plus outbound canonical-URL edges.
 #[derive(Clone, Copy, Debug)]

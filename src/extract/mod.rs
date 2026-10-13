@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Extraction: distill a fetched document into the small descriptor the index
 //! stores.
@@ -16,6 +16,7 @@ pub mod markdown;
 use crate::error::Result;
 use crate::resource::{Resource, ResourceKind};
 use crate::text;
+use crate::url_key::UrlKeyExt as _;
 use compact_str::CompactString;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -223,7 +224,7 @@ fn path_tags(resource: &Resource) -> SmallVec<[CompactString; 8]> {
         if base.is_empty() {
             continue;
         }
-        let norm = text::normalize(base);
+        let norm = CompactString::from(text::normalize(base));
         if norm.len() >= 2 && !tags.contains(&norm) {
             tags.push(norm);
         }

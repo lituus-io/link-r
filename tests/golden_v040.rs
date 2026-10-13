@@ -1,12 +1,15 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
-//! Compatibility with indexes written by link-r 0.2.0.
+//! Format stability for indexes written by link-r 0.4.0 (format 2, the
+//! graph-r container).
 //!
-//! `tests/fixtures/v0.2.0/facade.lnkr` and its dump were produced by the
-//! released 0.2.0 code running `tests/support/golden.rs`. Every later version
+//! `tests/fixtures/v0.4.0/facade.lnkr` was written by 0.4.0 from the corpus
+//! in `tests/support/golden.rs`; its dump is the 0.2.0 dump unchanged, so the
+//! format change kept every document, score and edge. Every later version
 //! must read that file identically — from disk and from bytes — and keep
-//! writing byte-identical output for it.
+//! writing byte-identical output for it. `LINKR_WRITE_GOLDEN=1` rewrites the
+//! fixture (only when the format deliberately changes).
 
 #![cfg(all(feature = "crawl", not(feature = "onnx")))]
 
@@ -18,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/v0.2.0")
+        .join("tests/fixtures/v0.4.0")
         .join(name)
 }
 
@@ -27,7 +30,19 @@ fn expected() -> String {
 }
 
 #[tokio::test]
-async fn a_020_index_reads_identically_from_disk_and_from_bytes() {
+async fn the_fixture_is_current() {
+    let mut index = LinkIndex::in_memory().unwrap();
+    golden::ingest(&mut index).await;
+    let written = index.to_bytes().unwrap();
+    if std::env::var_os("LINKR_WRITE_GOLDEN").is_some() {
+        std::fs::write(fixture("facade.lnkr"), &written).unwrap();
+    }
+    // Fetch times differ per run, so the fresh build matches by content.
+    assert_eq!(golden::dump(&index).await, expected());
+}
+
+#[tokio::test]
+async fn a_040_index_reads_identically_from_disk_and_from_bytes() {
     let from_disk = LinkIndex::open(fixture("facade.lnkr")).unwrap();
     assert_eq!(golden::dump(&from_disk).await, expected());
     let bytes = bytes::Bytes::from(std::fs::read(fixture("facade.lnkr")).unwrap());
@@ -36,7 +51,7 @@ async fn a_020_index_reads_identically_from_disk_and_from_bytes() {
 }
 
 #[tokio::test]
-async fn saving_an_unmutated_020_index_is_byte_identical() {
+async fn saving_an_unmutated_040_index_is_byte_identical() {
     let original = std::fs::read(fixture("facade.lnkr")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let copy = dir.path().join("kb.lnkr");
@@ -48,9 +63,9 @@ async fn saving_an_unmutated_020_index_is_byte_identical() {
 }
 
 #[tokio::test]
-async fn today_serializes_the_020_index_byte_identically() {
+async fn today_serializes_the_040_index_byte_identically() {
     // Decode fully (materialize the builder) and re-encode with today's
-    // writer: the same bytes 0.2.0 wrote.
+    // writer: the same bytes 0.4.0 wrote.
     let original = std::fs::read(fixture("facade.lnkr")).unwrap();
     let mut index = LinkIndex::from_bytes(bytes::Bytes::from(original.clone())).unwrap();
     index.pin("https://docs.example.com/guides/").unwrap(); // a no-op mutation
@@ -58,7 +73,7 @@ async fn today_serializes_the_020_index_byte_identically() {
 }
 
 #[tokio::test]
-async fn a_020_index_accepts_new_writes() {
+async fn a_040_index_accepts_new_writes() {
     let dir = tempfile::tempdir().unwrap();
     let copy = dir.path().join("kb.lnkr");
     std::fs::copy(fixture("facade.lnkr"), &copy).unwrap();

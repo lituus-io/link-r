@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Per-document metadata: the resolvable URL plus the structured columns used for
 //! display ([`DocMeta::title`], [`DocMeta::snippet`]) and exact-match filtering
@@ -10,10 +10,10 @@
 //! [`RoaringBitmap`] of allowed doc ids that prefilters both retrieval arms.
 
 use crate::error::{Error, Result};
-use crate::index::bytesio::{put_len_prefixed, put_u32, put_u64, put_u8, Reader};
 use crate::resource::{DocId, ResourceKind};
 use crate::url_key::UrlKey;
 use compact_str::CompactString;
+use graph_r::bytesio::{put_len_prefixed, put_u32, put_u64, put_u8, Reader};
 use roaring::RoaringBitmap;
 use smallvec::SmallVec;
 
@@ -104,18 +104,18 @@ pub fn decode(bytes: &[u8], has_freshness: bool) -> Result<Vec<DocMeta>> {
     // huge allocation (each record consumes ≥1 byte, so the loop errors out first).
     let mut docs = Vec::with_capacity(count.min(r.remaining()));
     for _ in 0..count {
-        let url = r.str()?.to_owned();
+        let url = r.blob()?.to_owned();
         let url_key = UrlKey(r.u64()?);
         let kind = ResourceKind::from_tag(r.u8()?);
         let content_hash = r.u64()?;
         let doc_len = r.u32()?;
         let title = get_opt_str(&mut r)?;
-        let snippet = CompactString::from(r.str()?);
+        let snippet = CompactString::from(r.blob()?);
         let lang = get_opt_str(&mut r)?;
         let tag_count = r.u32()? as usize;
         let mut tags = SmallVec::new();
         for _ in 0..tag_count {
-            tags.push(CompactString::from(r.str()?));
+            tags.push(CompactString::from(r.blob()?));
         }
         let (fetched_at_ms, pinned, etag) = if has_freshness {
             let fetched_at_ms = r.u64()?;
@@ -163,7 +163,7 @@ fn put_opt_str(buf: &mut Vec<u8>, s: Option<&str>) {
 fn get_opt_str(r: &mut Reader<'_>) -> Result<Option<CompactString>> {
     match r.u8()? {
         0 => Ok(None),
-        1 => Ok(Some(CompactString::from(r.str()?))),
+        1 => Ok(Some(CompactString::from(r.blob()?))),
         _ => Err(Error::format("invalid optional-string flag")),
     }
 }
@@ -238,6 +238,7 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::url_key::UrlKeyExt as _;
     use url::Url;
 
     fn doc(url: &str, kind: ResourceKind, lang: Option<&str>, tags: &[&str]) -> DocMeta {

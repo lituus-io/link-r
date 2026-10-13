@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The HTTP(S) fetcher (rustls), generic over a consumer-injected [`AuthProvider`].
 //!
@@ -245,20 +245,13 @@ const RETRY_AFTER_MIN_MS: u64 = 1_000;
 const RETRY_AFTER_MAX_MS: u64 = 300_000;
 
 fn rate_limited(resp: &reqwest::Response) -> Error {
-    // Honor Retry-After in both RFC 9110 forms (delay-seconds and IMF-fixdate),
-    // then x-ratelimit-reset (epoch seconds); clamp into a sane window.
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
+    // Retry-After in either RFC 9110 form, else x-ratelimit-reset (epoch
+    // seconds); clamped into a sane window.
+    let now_ms = graph_r::fsio::now_ms();
     let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok());
     let retry_after_ms = header("retry-after")
-        .and_then(|s| {
-            let s = s.trim();
-            s.parse::<u64>()
-                .ok()
-                .map(|secs| secs.saturating_mul(1000))
-                .or_else(|| parse_imf_fixdate_ms(s).map(|at| at.saturating_sub(now_ms)))
-        })
+        .and_then(|v| objstore_r::net::retry_after(v, now_ms))
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
         .or_else(|| {
             header("x-ratelimit-reset")
                 .and_then(|s| s.trim().parse::<u64>().ok())
@@ -269,86 +262,10 @@ fn rate_limited(resp: &reqwest::Response) -> Error {
     Error::rate_limited(retry_after_ms)
 }
 
-/// Parse an RFC 9110 IMF-fixdate ("Sun, 06 Nov 1994 08:49:37 GMT") into epoch
-/// milliseconds. Returns `None` for anything else; callers fall back to the
-/// default delay rather than erroring, matching the delay-seconds path.
-fn parse_imf_fixdate_ms(s: &str) -> Option<u64> {
-    let rest = s.split_once(", ").map_or(s, |(_, r)| r);
-    let mut parts = rest.split_ascii_whitespace();
-    let day: i64 = parts.next()?.parse().ok()?;
-    let mon: i64 = match parts.next()? {
-        "Jan" => 1,
-        "Feb" => 2,
-        "Mar" => 3,
-        "Apr" => 4,
-        "May" => 5,
-        "Jun" => 6,
-        "Jul" => 7,
-        "Aug" => 8,
-        "Sep" => 9,
-        "Oct" => 10,
-        "Nov" => 11,
-        "Dec" => 12,
-        _ => return None,
-    };
-    let year: i64 = parts.next()?.parse().ok()?;
-    let mut hms = parts.next()?.split(':');
-    let h: u64 = hms.next()?.parse().ok()?;
-    let m: u64 = hms.next()?.parse().ok()?;
-    let sec: u64 = hms.next()?.parse().ok()?;
-    if parts.next() != Some("GMT") || !(1..=31).contains(&day) || h > 23 || m > 59 || sec > 60 {
-        return None;
-    }
-    // Days-from-civil (Gregorian, proleptic); epoch day 0 = 1970-01-01.
-    let y = year - i64::from(mon <= 2);
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let doy = (153 * (mon + if mon > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    if days < 0 {
-        return None;
-    }
-    Some((days as u64 * 86_400 + h * 3600 + m * 60 + sec) * 1000)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::AnonymousAuth;
-
-    #[test]
-    fn imf_fixdate_parses_known_instants() {
-        assert_eq!(
-            parse_imf_fixdate_ms("Thu, 01 Jan 1970 00:00:00 GMT"),
-            Some(0)
-        );
-        // RFC 9110's own example date.
-        assert_eq!(
-            parse_imf_fixdate_ms("Sun, 06 Nov 1994 08:49:37 GMT"),
-            Some(784_111_777_000)
-        );
-        // Weekday prefix is optional noise for us.
-        assert_eq!(
-            parse_imf_fixdate_ms("06 Nov 1994 08:49:37 GMT"),
-            Some(784_111_777_000)
-        );
-    }
-
-    #[test]
-    fn imf_fixdate_rejects_garbage() {
-        for s in [
-            "",
-            "120",
-            "tomorrow",
-            "Sun, 32 Nov 1994 08:49:37 GMT",
-            "Sun, 06 Nov 1994 25:00:00 GMT",
-            "Sun, 06 Nov 1994 08:49:37 PST",
-            "Sun, 06 Foo 1994 08:49:37 GMT",
-        ] {
-            assert_eq!(parse_imf_fixdate_ms(s), None, "should reject {s:?}");
-        }
-    }
 
     #[test]
     fn constructs_with_anonymous_auth() {

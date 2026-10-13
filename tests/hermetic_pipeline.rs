@@ -1,11 +1,12 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Hermetic, offline end-to-end test: extract → embed → build → save → open →
 //! search, with no network and the deterministic hash embedder. Mirrors what the
 //! crawler and facade will drive in later phases.
 
 use compact_str::CompactString;
+use graph_r::hash::xxh3_64;
 use link_r::embed::{embed_one, Embedder};
 use link_r::extract::{AutoExtractor, Extractor};
 use link_r::index::IndexBuilder;
@@ -14,7 +15,6 @@ use link_r::query::{PreparedQuery, RankParams};
 use link_r::resource::{Resource, ResourceKind};
 use link_r::{Filter, HashEmbedder, Index};
 use url::Url;
-use xxhash_rust::xxh3::xxh3_64;
 
 const DIM: usize = 256;
 

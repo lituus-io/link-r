@@ -456,31 +456,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "link-r"
-version = "0.3.0"
-dependencies = [
- "bytes",
- "compact_str",
- "futures",
- "memchr",
- "memmap2",
- "roaring",
- "scraper",
- "secrecy",
- "smallvec",
- "thiserror",
- "url",
- "xxhash-rust",
- "zstd",
-]
-
-[[package]]
 name = "link-r-fuzz"
 version = "0.0.0"
 dependencies = [
  "bytes",
  "libfuzzer-sys",
- "link-r",
+ "uu-graph-r",
+ "uu-link-r",
 ]
 
 [[package]]
@@ -1044,6 +1026,43 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uu-graph-r"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "memmap2",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "uu-link-r"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "compact_str",
+ "futures",
+ "memchr",
+ "roaring",
+ "scraper",
+ "secrecy",
+ "smallvec",
+ "thiserror",
+ "url",
+ "uu-graph-r",
+ "uu-objstore-r",
+ "zstd",
+]
+
+[[package]]
+name = "uu-objstore-r"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "thiserror",
+ "uu-graph-r",
+]
 
 [[package]]
 name = "version_check"

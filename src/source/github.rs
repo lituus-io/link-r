@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The GitHub tree-API source: index a repository (or a subdirectory of one)
 //! without crawling anything.
@@ -25,6 +25,7 @@ use crate::payload::DocPayload;
 use crate::resource::{Page, Resource, ResourceKind, SourceRef};
 use crate::source::Source;
 use crate::url_key::UrlKey;
+use crate::url_key::UrlKeyExt as _;
 use compact_str::CompactString;
 use futures::stream::{FuturesUnordered, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
@@ -43,7 +44,7 @@ const DEFAULT_CONCURRENCY: usize = 8;
 /// Two spellings normalize here, so every consumer shares one parser:
 ///
 /// - the URL form: `https://github.com/owner/repo[/tree/ref[/subdir…]]`
-///   (e.g. `https://github.com/telus/bi-layer-docs/tree/main/stacks`);
+///   (e.g. `https://github.com/example-org/docs-site/tree/main/stacks`);
 /// - the ref grammar: `github:owner/repo@ref[//subdir]`.
 ///
 /// A bare repo (no ref) leaves [`GithubSpec::ref_name`] empty; the source
@@ -548,9 +549,9 @@ mod tests {
 
     #[test]
     fn url_form_parses_the_default_corpus_shape() {
-        let s = spec("https://github.com/telus/bi-layer-docs/tree/main/stacks");
-        assert_eq!(s.owner, "telus");
-        assert_eq!(s.repo, "bi-layer-docs");
+        let s = spec("https://github.com/example-org/docs-site/tree/main/stacks");
+        assert_eq!(s.owner, "example-org");
+        assert_eq!(s.repo, "docs-site");
         assert_eq!(s.ref_name, "main");
         assert_eq!(s.subdir, "stacks");
     }
@@ -576,10 +577,10 @@ mod tests {
 
     #[test]
     fn ref_grammar_parses_both_shapes() {
-        let s = spec("github:telus/bi-layer-docs@main//stacks");
+        let s = spec("github:example-org/docs-site@main//stacks");
         assert_eq!(
             (s.owner.as_str(), s.repo.as_str()),
-            ("telus", "bi-layer-docs")
+            ("example-org", "docs-site")
         );
         assert_eq!((s.ref_name.as_str(), s.subdir.as_str()), ("main", "stacks"));
         // Slashed branch names are unambiguous here — the reason this grammar exists.

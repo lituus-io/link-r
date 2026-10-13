@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! An expiring-token provider with lock-free reads and single-flight refresh.
 //!
@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// Sentinel meaning "no token has been fetched yet".
 const NO_TOKEN: i64 = i64::MIN;
@@ -76,9 +76,7 @@ impl<R: TokenSource> OAuthRefreshAuth<R> {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    i64::try_from(graph_r::fsio::now_ms()).unwrap_or(i64::MAX)
 }
 
 impl<R: TokenSource> AuthProvider for OAuthRefreshAuth<R> {

@@ -4,6 +4,28 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0
+
+Breaking: index format 2 (indexes from 0.3 are rebuilt by re-indexing; the
+golden fixture moved to `tests/fixtures/v0.4.0`, whose dump is the 0.2.0 dump
+unchanged — every document, score and edge survives the change).
+
+- The file is a `graph_r::container`: one checksum per byte, zero padding,
+  per-section flags; the separate whole-file trailer is gone.
+- Byte codecs, mmap (`cast_f32`), atomic writes, hashing and the text rules
+  are graph-r's core; `link_r::UrlKey` is `graph_r::UrlKey`, built through
+  the `UrlKeyExt` trait (`UrlKey::from_url`, `UrlKey::parse`).
+- Retry status set, jittered backoff and `Retry-After` (both RFC 9110 forms)
+  are objstore-r's `net` policy, shared with every HTTP client of the stack.
+- `index::sparse::{idf, term_weight}` and `index::fuse::rrf_term`: the BM25
+  and RRF formulas, public for indexes with their own layout (crab-r's
+  schema linker, graph-r-kb's fused lookups).
+- Published as **uu-link-r** on crates.io (the library is still `link_r`).
+  The former satellite crates are features: `remote` (was link-r-objstore;
+  `link_r::remote::Remote`, on `objstore_r::fenced`), `graph` (the graph-r
+  bridge, was graph-r-link; `link_r::bridge`) and `kb` (was graph-r-kb;
+  `link_r::kb::KnowledgeBase`), plus `gcs`.
+
 ## 0.3.0
 
 Additive release: every 0.2 API, feature, file format and default behaviour

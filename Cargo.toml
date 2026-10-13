@@ -1,17 +1,19 @@
-# Copyright: lituus-io, all rights reserved.
-# Author: terekete <spicyzhug@gmail.com>
+# Author: support@lituus.io
+# Copyright: lituus-io, all rights reserved
 
 [package]
-name = "link-r"
-version = "0.3.0"
+name = "uu-link-r"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.89"
 license = "AGPL-3.0-or-later"
 description = "Tiny embeddable crawl-and-resolve link index: crawl a parent URL, distill keywords, build a zero-copy hybrid index, resolve queries to ranked links."
 repository = "https://github.com/lituus-io/link-r"
-authors = ["lituus-io <spicyzhug@gmail.com>"]
-publish = false
+authors = ["lituus-io <support@lituus.io>"]
+homepage = "https://github.com/lituus-io/link-r"
+documentation = "https://docs.rs/uu-link-r"
 readme = "README.md"
+exclude = ["/.github", "/scripts", "/bindings", "/fuzz"]
 keywords = ["search", "index", "crawler", "embeddings", "bm25"]
 categories = ["text-processing", "web-programming", "caching"]
 
@@ -44,22 +46,47 @@ robots = ["crawl", "dep:texting_robots"]            # honor robots.txt (off by d
 quant = []                                          # int8 + binary quantization, two-tier rerank
 parallel = ["dep:rayon"]                            # rayon-parallel build
 
+# --- composition with graph-r and object storage ---
+# Publish and load indexes on an object store: fenced HEAD, create-only
+# generations, in-place replica refresh (`remote` module).
+remote = []
+# Cloud Storage for `remote` and `kb`.
+gcs = ["objstore-r/gcs"]
+# The graph-r bridge: absorb a crawl into a graph-r store and drive refresh
+# from its due-lists (`bridge` module).
+graph = ["graph-r/store", "crawl", "fs", "github"]
+# One knowledge base: graph-r + link-r on an object store, fenced publish,
+# zero-copy hydration, fused lookups (`kb` module).
+kb = ["graph", "remote", "objstore-r/mirror", "dep:futures-util"]
+
 full = ["hash", "onnx", "markdown", "html", "http", "crawl", "fs",
         "github", "oauth", "robots", "quant", "parallel"]
+
+[lib]
+name = "link_r"
+
+[package.metadata.docs.rs]
+# Every feature but `onnx`, whose build downloads a runtime.
+features = ["hash", "markdown", "html", "http", "crawl", "fs", "github", "oauth", "robots", "quant", "parallel", "remote", "gcs", "graph", "kb"]
 
 [dependencies]
 # --- always-on core (tiny, offline) ---
 bytes = "1.7"
 smallvec = { version = "1.13", features = ["union", "const_generics"] }
 compact_str = "0.8"
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
 thiserror = "1.0"
 futures = "0.3"
 url = "2.5"
 zstd = "0.13"
 secrecy = "0.10"
 roaring = "0.10"
-memmap2 = "0.9"          # the index always mmaps; only the *fs source* is feature-gated
+# The shared core: xxh3, byte codecs, the sectioned container, mmap, atomic
+# files and the text rules (one implementation with graph-r's lexicon).
+graph-r = { package = "uu-graph-r", path = "../graph-r", version = "0.4.0", default-features = false, features = ["mmap"] }
+# Retry, backoff and Retry-After policy shared with every HTTP client.
+objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = "0.2.0" }
+# try_join: the knowledge base hydrates both halves concurrently (feature kb).
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["alloc"] }
 
 # --- feature-gated ---
 reqwest = { version = "0.12", default-features = false, features = ["stream", "http2", "rustls-tls", "gzip"], optional = true }
@@ -77,8 +104,9 @@ rayon = { version = "1.10", optional = true }
 texting_robots = { version = "0.2", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "test-util"] }
-criterion = { version = "0.5", features = ["html_reports"] }
+objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = "0.2.0", features = ["testing", "gcs", "mirror"] }
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "test-util", "net", "io-util", "time"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 proptest = "1.5"
 tempfile = "3.12"
 
@@ -115,3 +143,29 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 debug = true
+
+[[test]]
+name = "remote"
+required-features = ["remote"]
+
+[[test]]
+name = "bridge_e2e"
+required-features = ["graph"]
+
+[[test]]
+name = "kb"
+required-features = ["kb"]
+
+[[test]]
+name = "kb_gcs"
+required-features = ["kb", "gcs"]
+
+[[test]]
+name = "proptest_kb"
+required-features = ["kb"]
+
+[[bench]]
+name = "kb_bench"
+harness = false
+required-features = ["kb"]
+

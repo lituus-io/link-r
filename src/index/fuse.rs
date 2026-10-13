@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Reciprocal Rank Fusion (RRF) for combining dense and sparse result lists.
 //!
@@ -37,6 +37,15 @@ impl<'a> RankList<'a> {
     }
 }
 
+/// One list's RRF contribution for the item at 0-based `rank`:
+/// `weight / (k + rank + 1)` — the term every fusion over ranked lists
+/// (this module's, and callers fusing by their own keys) adds up.
+#[must_use]
+#[inline]
+pub fn rrf_term(weight: f32, k: f32, rank: usize) -> f32 {
+    weight / (k + rank as f32 + 1.0)
+}
+
 /// Fuse ranked lists with RRF and return the top `limit` doc ids by fused score,
 /// descending. `k` is the RRF constant (see [`DEFAULT_RRF_K`]).
 #[must_use]
@@ -45,8 +54,7 @@ pub fn reciprocal_rank_fusion(lists: &[RankList<'_>], k: u32, limit: usize) -> V
     let mut scores: HashMap<DocId, f32> = HashMap::new();
     for list in lists {
         for (rank, &id) in list.ids.iter().enumerate() {
-            let contribution = list.weight / (kf + (rank as f32 + 1.0));
-            *scores.entry(id).or_insert(0.0) += contribution;
+            *scores.entry(id).or_insert(0.0) += rrf_term(list.weight, kf, rank);
         }
     }
     let mut fused: Vec<(DocId, f32)> = scores.into_iter().collect();

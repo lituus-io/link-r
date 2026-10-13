@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Shared bench telemetry helpers: a deterministic PRNG, RSS sampling, the
 //! `AUTORESEARCH` line emitter, and a least-squares slope for the memory-expansion

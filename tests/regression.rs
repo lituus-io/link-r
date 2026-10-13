@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The permanent index of fixed defects, asserted through the public API.
 //!
@@ -14,6 +14,7 @@ use link_r::extract::Descriptor;
 use link_r::resource::ResourceKind;
 use link_r::url_key::{canonicalize, UrlKey};
 use link_r::Error;
+use link_r::UrlKeyExt as _;
 
 // ---- retry classification -------------------------------------------------
 
@@ -69,7 +70,7 @@ fn the_url_key_is_exactly_the_hash_of_the_canonical_string() {
         let u = url::Url::parse(s).unwrap();
         assert_eq!(
             UrlKey::from_url(&u).raw(),
-            xxhash_rust::xxh3::xxh3_64(canonicalize(&u).as_bytes()),
+            link_r::UrlKey::of(&canonicalize(&u)).raw(),
             "streaming hash diverged from the canonical string for {s:?}"
         );
     }
