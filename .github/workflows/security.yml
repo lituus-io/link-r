@@ -47,7 +47,11 @@ jobs:
         env:
           SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
         run: scripts/fetch-siblings.sh
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # Installed and run on the host: the deny action's container sees neither
+      # the siblings beside the checkout nor the pinned nightly toolchain.
+      - name: Install cargo-deny
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-deny --locked
+      - run: cargo deny check
 
   suite:
     name: Security suite
