@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Crawl + facade benchmarks: end-to-end mock-fetcher crawl throughput (sequential
 //! vs concurrent), the hot per-page kernels, and the facade pipeline (batched
@@ -18,6 +18,7 @@ use link_r::extract::html::extract_links;
 use link_r::fetch::{FetchMeta, FetchOptions, Fetched, Fetcher};
 use link_r::payload::DocPayload;
 use link_r::resource::{Resource, ResourceKind, SourceRef};
+use link_r::UrlKeyExt as _;
 use link_r::{CrawlScope, CrawlSource, LinkIndex, Source, UrlKey};
 use std::collections::HashMap;
 use std::future::Ready;

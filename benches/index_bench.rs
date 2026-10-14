@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Benchmarks for build, query, mmap-open, and the hot kernels.
 //!
@@ -161,6 +161,37 @@ fn bench_open(c: &mut Criterion) {
     group.finish();
 }
 
+/// 0.3 paths: loading from an in-memory image (object storage), saving an
+/// unmutated index (byte copy vs full re-encode), and serializing a builder.
+fn bench_images(c: &mut Criterion) {
+    let mut group = c.benchmark_group("images");
+    let tmp = tempfile::tempdir().unwrap();
+    for &n in &[1_000usize, 10_000] {
+        let docs = gen_docs(n, 5);
+        let path = tmp.path().join(format!("img-{n}.lnkr"));
+        build_index(&docs).save(&path).unwrap();
+        let image = bytes::Bytes::from(std::fs::read(&path).unwrap());
+        group.throughput(Throughput::Bytes(image.len() as u64));
+        group.bench_with_input(BenchmarkId::new("from_bytes", n), &image, |b, image| {
+            b.iter(|| black_box(Index::from_bytes(image.clone()).unwrap()));
+        });
+        let opened = Index::open(&path).unwrap();
+        let out = tmp.path().join(format!("out-{n}.lnkr"));
+        group.bench_with_input(
+            BenchmarkId::new("save_unmutated_fast_path", n),
+            &opened,
+            |b, idx| {
+                b.iter(|| idx.save(&out).unwrap());
+            },
+        );
+        let owned = build_index(&docs);
+        group.bench_with_input(BenchmarkId::new("save_reencode", n), &owned, |b, idx| {
+            b.iter(|| idx.save(&out).unwrap());
+        });
+    }
+    group.finish();
+}
+
 fn bench_kernels(c: &mut Criterion) {
     let mut group = c.benchmark_group("kernels");
     let docs = gen_docs(10_000, 4);
@@ -198,5 +229,12 @@ fn bench_kernels(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_build, bench_query, bench_open, bench_kernels);
+criterion_group!(
+    benches,
+    bench_build,
+    bench_query,
+    bench_open,
+    bench_images,
+    bench_kernels
+);
 criterion_main!(benches);

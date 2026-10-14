@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! Embedders: turn distilled text into dense vectors.
 //!
@@ -31,7 +31,7 @@ impl EmbedderId {
     /// Derive an id from a name and discriminating parameters.
     #[must_use]
     pub fn derive(name: &str, dim: usize, params: u64) -> Self {
-        use xxhash_rust::xxh3::xxh3_64;
+        use graph_r::hash::xxh3_64;
         let mut seed = xxh3_64(name.as_bytes());
         seed ^= (dim as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         seed ^= params.wrapping_mul(0xC2B2_AE3D_27D4_EB4F);

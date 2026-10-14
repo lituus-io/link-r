@@ -48,6 +48,25 @@ for related in idx.related("https://example.com/docs/auth", 5)? {
 For private sources, inject auth: `.token("ghp_...")` (scoped to the crawl host, so
 it is never sent off-host) or `.auth(Box::new(my_oauth))`.
 
+## Object storage and custom embedders (0.3)
+
+```rust,ignore
+// Load an index straight from a bucket and search it zero-copy.
+let gcs = objstore_r::Gcs::new("my-bucket", objstore_r::token::Adc::discover()?, Default::default())?;
+let remote = link_r::remote::Remote::new(&gcs, "kb/runbooks")?;
+let index = remote.load().await?.expect("published");
+
+// Or bring bytes from anywhere.
+let index = link_r::LinkIndex::from_bytes(bytes)?;
+
+// After a sync: settle into the compact form, then publish (fenced).
+index.freeze()?;
+remote.publish(&index).await?;
+
+// Any `Embedder` (e.g. a remote embedding API) instead of the default.
+let index = link_r::LinkIndex::in_memory_with(my_embedder);
+```
+
 ## Python (drop-in RAG replacement)
 
 Build a categorical knowledge base from GitHub links, maintain it on a TTL, and
@@ -123,7 +142,9 @@ The `Embedder` trait is pluggable; bring your own.
 ## Features
 
 `hash` `markdown` `html` `http` `crawl` `fs` (default) · `onnx` `oauth`
-`robots` `quant` `parallel` · `full`.
+`robots` `quant` `parallel` · `full` · composition: `remote` (indexes on an
+object store), `gcs`, `graph` (the graph-r bridge), `kb` (graph-r + link-r as
+one knowledge base on an object store).
 
 ## Testing
 
@@ -134,8 +155,9 @@ loader is fuzzed against arbitrary bytes — it must never panic or OOM).
 ## graph-r: the persistent backend
 
 link-r can run purely in memory as the hot working set; its sibling crate
-[graph-r](../graph-r) is the durable historical layer. `LinkIndex::export()`
-hands every document + its edges to graph-r's `bridge::absorb`, per-page
+[graph-r](https://github.com/lituus-io/graph-r) is the durable historical
+layer. With feature `graph`, `link_r::bridge::absorb` hands every document +
+its edges to a graph-r store, per-page
 `UpdateReport::pages` outcomes (headings, keywords) become graph segments, and
 graph-r's adaptive-TTL due-lists drive `refresh().urls(...)` so only what is
 actually stale gets revalidated — with stored ETags, an unchanged site costs

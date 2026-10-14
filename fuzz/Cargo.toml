@@ -1,5 +1,5 @@
-# Copyright: lituus-io, all rights reserved.
-# Author: terekete <spicyzhug@gmail.com>
+# Author: support@lituus.io
+# Copyright: lituus-io, all rights reserved
 
 [package]
 name = "link-r-fuzz"
@@ -12,8 +12,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+# The f32 view the index loader relies on lives in graph-r's mmap island.
+graph-r = { package = "uu-graph-r", path = "../../graph-r", default-features = false, features = ["mmap"] }
+bytes = "1.7"
 
 [dependencies.link-r]
+package = "uu-link-r"
 path = ".."
 default-features = false
 features = ["html"]
@@ -41,6 +45,13 @@ bench = false
 [[bin]]
 name = "fuzz_html_links"
 path = "fuzz_targets/fuzz_html_links.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_index_from_bytes"
+path = "fuzz_targets/fuzz_index_from_bytes.rs"
 test = false
 doc = false
 bench = false

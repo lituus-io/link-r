@@ -4,6 +4,91 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0
+
+Breaking: index format 2 (indexes from 0.3 are rebuilt by re-indexing; the
+golden fixture moved to `tests/fixtures/v0.4.0`, whose dump is the 0.2.0 dump
+unchanged — every document, score and edge survives the change).
+
+- The file is a `graph_r::container`: one checksum per byte, zero padding,
+  per-section flags; the separate whole-file trailer is gone.
+- Byte codecs, mmap (`cast_f32`), atomic writes, hashing and the text rules
+  are graph-r's core; `link_r::UrlKey` is `graph_r::UrlKey`, built through
+  the `UrlKeyExt` trait (`UrlKey::from_url`, `UrlKey::parse`).
+- Retry status set, jittered backoff and `Retry-After` (both RFC 9110 forms)
+  are objstore-r's `net` policy, shared with every HTTP client of the stack.
+- `index::sparse::{idf, term_weight}` and `index::fuse::rrf_term`: the BM25
+  and RRF formulas, public for indexes with their own layout (crab-r's
+  schema linker, graph-r-kb's fused lookups).
+- Published as **uu-link-r** on crates.io (the library is still `link_r`).
+  The former satellite crates are features: `remote` (was link-r-objstore;
+  `link_r::remote::Remote`, on `objstore_r::fenced`), `graph` (the graph-r
+  bridge, was graph-r-link; `link_r::bridge`) and `kb` (was graph-r-kb;
+  `link_r::kb::KnowledgeBase`), plus `gcs`.
+
+## 0.3.0
+
+Additive release: every 0.2 API, feature, file format and default behaviour
+is unchanged (`cargo semver-checks` against 0.2.0: 196/196 checks pass as a
+minor release), and indexes written by 0.2.0 read identically from disk and
+from bytes, save byte-identically, and re-serialize byte-identically
+(golden fixture in `tests/fixtures/v0.2.0`).
+
+### In-memory images (object storage)
+
+- `Index::from_bytes(Bytes)` and `Index::serialize()`; `LinkIndex::from_bytes`
+  and `LinkIndex::to_bytes`. The dense block is borrowed from the buffer when
+  it is `f32`-aligned (copied once otherwise), so an index fetched from a
+  bucket is searched without a temp file or a second copy.
+- New crate `objstore/` (**link-r-objstore**): `Remote::load`, `publish`
+  (create-only generations + conditional `HEAD` swap; a racing publisher is
+  fenced), `load_if_changed` / `load_if_changed_into` (one metadata request
+  when unchanged; the latter refreshes a replica in place), and
+  `load_or_empty_with` (a writer's first start), over
+  objstore-r's GCS, local-directory and in-memory backends. Separate crate,
+  so link-r's own manifest gains no dependency.
+
+### Bring your own embedder
+
+- `LinkIndex<E: Embedder = DefaultEmbedder>`: existing code infers exactly
+  as before; `open_or_create_with`, `open_with`, `in_memory_with` and
+  `from_bytes_with` take any `Embedder` (e.g. a remote embedding API), and
+  the header's embedder-identity check still refuses a mismatched index.
+  The update/refresh/GitHub builders follow the index's embedder.
+- `facade::default_embedder()` is public; `LinkIndex::embedder()`.
+- `LinkIndex::reload_from_bytes`: swap a newer image in place, keeping the
+  embedder (the replica refresh path).
+
+### Performance and resources
+
+- `LinkIndex::freeze()`: after a sync, replace the builder and its search
+  snapshot (two copies of the corpus) with one image searched zero-copy.
+- Saving an index that was loaded and not mutated writes the original image
+  (no decode/re-encode, no zstd pass).
+- One HTTP client per `LinkIndex`, reused by every update/refresh/GitHub
+  run (connection pool and TLS configuration survive between runs); same
+  client configuration as `HttpFetcher::new`.
+
+### Fixes
+
+- `atomic_write` temporaries are named by pid **and** a process-wide counter
+  and created exclusively: two threads (or two indexes) saving in one process
+  could previously truncate each other's half-written temporary.
+
+### Security
+
+- Lockfiles (crate and Python binding) move to rustls 0.23.45 for
+  RUSTSEC-2026-0285.
+
+### Tooling
+
+- Fuzz target `fuzz_index_from_bytes` (every buffer alignment; accepted
+  images must re-serialize to themselves), seeded with the 0.2.0 fixture.
+- Benchmarks for image load and the save fast path; CI jobs for the
+  objstore crate (with the GCS emulator), semver and the golden fixture;
+  `scripts/ci-local.sh`.
+- `rust-version` is now 1.89; the pinned nightly is unchanged.
+
 ## 0.2.0
 
 ### GitHub tree-API source (feature `github`)

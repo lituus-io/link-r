@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The hybrid index: on-disk format, zero-copy store, retrieval, and incremental
 //! upsert.
@@ -10,17 +10,14 @@
 //! exact path is recall-validated.
 
 pub mod builder;
-pub mod bytesio;
 pub mod dense;
 pub mod format;
 pub mod fuse;
 pub mod graph;
 pub mod meta;
-pub mod mmap;
 #[cfg(feature = "quant")]
 pub mod quant;
 pub mod sparse;
-pub mod writer;
 
 pub use builder::{Document, IndexBuilder, UpsertOutcome};
 pub use meta::{DocMeta, Filter};
@@ -28,12 +25,12 @@ pub use meta::{DocMeta, Filter};
 use crate::error::{Error, Result};
 use crate::index::format::{flags, Header, IndexFile, IndexWriter, SectionKind};
 use crate::index::graph::Graph;
-use crate::index::mmap::MappedFile;
 use crate::index::sparse::Bm25;
 use crate::metric::Metric;
 use crate::query::{Fusion, Hits, PreparedQuery};
 use crate::resource::DocId;
 use crate::url_key::UrlKey;
+use graph_r::mmap::{cast_f32, MappedFile};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -42,12 +39,36 @@ use std::path::Path;
 enum Backing {
     /// Owned f32 vectors (in-memory build).
     Owned(Vec<f32>),
-    /// A zero-copy range into a memory-mapped file.
-    Mapped {
+    /// A zero-copy range into an image: a memory-mapped file, or shared bytes
+    /// (from [`Index::from_bytes`], only when the range is `f32`-aligned).
+    Image {
         file: MappedFile,
         dense_off: usize,
         dense_len: usize,
     },
+}
+
+impl Backing {
+    /// The complete original file image, when the index was loaded from one
+    /// and has not been mutated since (the save fast path).
+    fn image(&self) -> Option<&[u8]> {
+        match self {
+            Backing::Owned(_) => None,
+            Backing::Image { file, .. } => Some(file.bytes()),
+        }
+    }
+}
+
+/// Everything decoded from an index image except the dense block itself.
+struct Parsed {
+    dim: usize,
+    metric: Metric,
+    embedder_id: u64,
+    dense_off: usize,
+    dense_len: usize,
+    meta: Vec<DocMeta>,
+    bm25: Bm25,
+    edges: Vec<Vec<UrlKey>>,
 }
 
 /// A queryable hybrid index.
@@ -151,11 +172,13 @@ impl Index {
     pub fn dense(&self) -> Result<&[f32]> {
         match &self.backing {
             Backing::Owned(v) => Ok(v),
-            Backing::Mapped {
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
-            } => mmap::cast_f32(&file.bytes()[*dense_off..*dense_off + *dense_len]),
+            } => Ok(cast_f32(
+                &file.bytes()[*dense_off..*dense_off + *dense_len],
+            )?),
         }
     }
 
@@ -165,89 +188,151 @@ impl Index {
     /// Returns [`Error::Format`] on a corrupt/incompatible file, or [`Error::Io`]
     /// if the file cannot be opened.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let file = MappedFile::open(path)?;
-        let (dim, metric, embedder_id, dense_off, dense_len, meta, bm25, edges) = {
-            let parsed = IndexFile::parse(file.bytes())?;
-            let h = parsed.header;
-            let dim = h.dim as usize;
-            let doc_count = h.doc_count as usize;
-
-            let (doff, dlen) = parsed
-                .section_range(SectionKind::Dense)
-                .ok_or_else(|| Error::format("missing dense section"))?;
-            let expected = doc_count
-                .checked_mul(dim)
-                .and_then(|n| n.checked_mul(std::mem::size_of::<f32>()))
-                .ok_or_else(|| Error::format("dense size overflow"))?;
-            if dlen != expected {
-                return Err(Error::format("dense section size mismatch"));
-            }
-
-            let meta_bytes = parsed
-                .section(SectionKind::DocMeta)?
-                .ok_or_else(|| Error::format("missing metadata section"))?;
-            let has_freshness = h.flags & flags::META_FRESHNESS != 0;
-            let meta = meta::decode(&meta_bytes, has_freshness)?;
-            if meta.len() != doc_count {
-                return Err(Error::format("metadata doc-count mismatch"));
-            }
-
-            let bm25_bytes = parsed
-                .section(SectionKind::Bm25)?
-                .ok_or_else(|| Error::format("missing BM25 section"))?;
-            let bm25 = Bm25::from_bytes(&bm25_bytes)?;
-
-            // The link graph is optional (flag-gated); absent ⇒ empty edges.
-            let edges = if h.flags & flags::LINK_GRAPH != 0 {
-                let edge_bytes = parsed
-                    .section(SectionKind::Edges)?
-                    .ok_or_else(|| Error::format("LINK_GRAPH flag set but no Edges section"))?;
-                let decoded = graph::decode(&edge_bytes)?;
-                if decoded.len() != doc_count {
-                    return Err(Error::format("edges doc-count mismatch"));
-                }
-                decoded
-            } else {
-                vec![Vec::new(); doc_count]
-            };
-
-            (
-                dim,
-                Metric::from_tag(h.metric),
-                h.embedder_id,
-                doff,
-                dlen,
-                meta,
-                bm25,
-                edges,
-            )
-        };
-
-        let url_index: HashMap<UrlKey, DocId> = meta
-            .iter()
-            .enumerate()
-            .map(|(i, d)| (d.url_key, i as DocId))
-            .collect();
-        let graph = Graph::resolve(&edges, &url_index);
-
-        let index = Self {
-            backing: Backing::Mapped {
+        let file = MappedFile::open(path.as_ref())?;
+        let p = Self::parse(file.bytes())?;
+        let (dense_off, dense_len) = (p.dense_off, p.dense_len);
+        let index = Self::assemble(
+            p,
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
             },
-            dim,
-            metric,
-            embedder_id,
-            bm25,
-            meta,
-            edges,
-            graph,
-            by_url: url_index,
-        };
+        );
         // Validate the dense alignment now so later queries cannot fail on it.
         index.dense()?;
         Ok(index)
+    }
+
+    /// Load an index from an in-memory image (for example an object fetched
+    /// from a bucket), fully validated exactly like [`Index::open`]. The dense
+    /// block is borrowed from `bytes` without copying when it is `f32`-aligned
+    /// in memory (always the case for a buffer that starts 4-aligned, since the
+    /// format 64-aligns the section); otherwise it is copied once.
+    ///
+    /// # Errors
+    /// Returns [`Error::Format`] on a corrupt or incompatible image.
+    pub fn from_bytes(bytes: bytes::Bytes) -> Result<Self> {
+        let p = Self::parse(&bytes)?;
+        let (dense_off, dense_len) = (p.dense_off, p.dense_len);
+        let range = &bytes[dense_off..dense_off + dense_len];
+        let backing = if cast_f32(range).is_ok() {
+            Backing::Image {
+                file: MappedFile::from_bytes(bytes),
+                dense_off,
+                dense_len,
+            }
+        } else {
+            let floats = range
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            Backing::Owned(floats)
+        };
+        Ok(Self::assemble(p, backing))
+    }
+
+    /// The on-disk image of this index — exactly what [`Index::save`] writes.
+    /// An index loaded from a file or image and not mutated since returns
+    /// that image unchanged.
+    ///
+    /// # Errors
+    /// Returns [`Error::Format`] if a mapped dense blob cannot be read.
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        if let Some(image) = self.backing.image() {
+            return Ok(image.to_vec());
+        }
+        Ok(serialize_sections(
+            self.dim,
+            self.metric,
+            self.embedder_id,
+            &self.meta,
+            self.dense()?,
+            &self.edges,
+            &self.bm25,
+        ))
+    }
+
+    /// Validate an image and decode everything but the dense block.
+    fn parse(bytes: &[u8]) -> Result<Parsed> {
+        let parsed = IndexFile::parse(bytes)?;
+        let h = parsed.header;
+        let dim = h.dim as usize;
+        let doc_count = h.doc_count as usize;
+
+        let expected = doc_count
+            .checked_mul(dim)
+            .and_then(|n| n.checked_mul(std::mem::size_of::<f32>()))
+            .ok_or_else(|| Error::format("dense size overflow"))?;
+        // An empty dense blob is omitted from the file (absent reads as empty).
+        let (doff, dlen) = match parsed.section_range(SectionKind::Dense) {
+            Some(r) => r,
+            None if expected == 0 => (0, 0),
+            None => return Err(Error::format("missing dense section")),
+        };
+        if dlen != expected {
+            return Err(Error::format("dense section size mismatch"));
+        }
+
+        let meta_bytes = parsed
+            .section(SectionKind::DocMeta)?
+            .ok_or_else(|| Error::format("missing metadata section"))?;
+        let has_freshness = h.flags & flags::META_FRESHNESS != 0;
+        let meta = meta::decode(&meta_bytes, has_freshness)?;
+        if meta.len() != doc_count {
+            return Err(Error::format("metadata doc-count mismatch"));
+        }
+
+        let bm25_bytes = parsed
+            .section(SectionKind::Bm25)?
+            .ok_or_else(|| Error::format("missing BM25 section"))?;
+        let bm25 = Bm25::from_bytes(&bm25_bytes)?;
+
+        // The link graph is optional (flag-gated); absent ⇒ empty edges.
+        let edges = if h.flags & flags::LINK_GRAPH != 0 {
+            let edge_bytes = parsed
+                .section(SectionKind::Edges)?
+                .ok_or_else(|| Error::format("LINK_GRAPH flag set but no Edges section"))?;
+            let decoded = graph::decode(&edge_bytes)?;
+            if decoded.len() != doc_count {
+                return Err(Error::format("edges doc-count mismatch"));
+            }
+            decoded
+        } else {
+            vec![Vec::new(); doc_count]
+        };
+
+        Ok(Parsed {
+            dim,
+            metric: Metric::from_tag(h.metric),
+            embedder_id: h.embedder_id,
+            dense_off: doff,
+            dense_len: dlen,
+            meta,
+            bm25,
+            edges,
+        })
+    }
+
+    fn assemble(p: Parsed, backing: Backing) -> Self {
+        let url_index: HashMap<UrlKey, DocId> = p
+            .meta
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.url_key, i as DocId))
+            .collect();
+        let graph = Graph::resolve(&p.edges, &url_index);
+        Self {
+            backing,
+            dim: p.dim,
+            metric: p.metric,
+            embedder_id: p.embedder_id,
+            bm25: p.bm25,
+            meta: p.meta,
+            edges: p.edges,
+            graph,
+            by_url: url_index,
+        }
     }
 
     /// Serialize and atomically save to `path`.
@@ -255,6 +340,11 @@ impl Index {
     /// # Errors
     /// Returns [`Error::Io`] on a filesystem failure.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        // Unmutated since load: the original image is already the answer
+        // (no decode/re-encode, no zstd pass).
+        if let Some(image) = self.backing.image() {
+            return Ok(graph_r::fsio::write_atomic(path.as_ref(), &[image])?);
+        }
         let bytes = serialize_sections(
             self.dim,
             self.metric,
@@ -264,7 +354,7 @@ impl Index {
             &self.edges,
             &self.bm25,
         );
-        writer::atomic_write(path, &bytes)
+        Ok(graph_r::fsio::write_atomic(path.as_ref(), &[&bytes])?)
     }
 
     /// Convert into a mutable builder for incremental upserts.
@@ -276,11 +366,11 @@ impl Index {
         let (k1, b) = (self.bm25.k1(), self.bm25.b());
         let dense = match self.backing {
             Backing::Owned(v) => v,
-            Backing::Mapped {
+            Backing::Image {
                 file,
                 dense_off,
                 dense_len,
-            } => mmap::cast_f32(&file.bytes()[dense_off..dense_off + dense_len])?.to_vec(),
+            } => cast_f32(&file.bytes()[dense_off..dense_off + dense_len])?.to_vec(),
         };
         Ok(IndexBuilder::from_parts(
             self.dim,
@@ -400,12 +490,10 @@ pub(crate) fn serialize_sections(
                 0
             }
             | if has_edges { flags::LINK_GRAPH } else { 0 },
-        section_count: 0,
         dim: dim as u32,
         doc_count: docs.len() as u32,
         metric: metric.as_tag(),
         embedder_id,
-        total_len: 0,
         bm25_k1_bits: bm25.k1().to_bits(),
         bm25_b_bits: bm25.b().to_bits(),
         avgdl_bits: bm25.avgdl().to_bits(),

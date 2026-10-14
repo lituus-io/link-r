@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The BM25 sparse index — the lexical half of hybrid retrieval.
 //!
@@ -9,9 +9,9 @@
 //! lists, and decoded zero-allocation-per-query at search time.
 
 use crate::error::{Error, Result};
-use crate::index::bytesio::{put_f32, put_len_prefixed, put_u16, put_u32, Reader};
 use crate::resource::DocId;
 use compact_str::CompactString;
+use graph_r::bytesio::{put_f32, put_len_prefixed, put_u16, put_u32, Reader};
 use roaring::RoaringBitmap;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -97,6 +97,22 @@ fn accumulate_parallel(
         }
     }
     acc
+}
+
+/// BM25 inverse document frequency of a term in `df` of `n` documents
+/// (the `+1` form: never negative).
+#[must_use]
+#[inline]
+pub fn idf(n: f32, df: f32) -> f32 {
+    (1.0 + (n - df + 0.5) / (df + 0.5)).ln()
+}
+
+/// BM25 weight of a term with frequency `tf` (fractional for field-weighted
+/// documents) in a document of length `dl`, before IDF.
+#[must_use]
+#[inline]
+pub fn term_weight(tf: f32, dl: f32, avgdl: f32, k1: f32, b: f32) -> f32 {
+    tf * (k1 + 1.0) / (tf + k1 * (1.0 - b + b * dl / avgdl.max(1.0)))
 }
 
 impl Bm25 {
@@ -199,15 +215,14 @@ impl Bm25 {
             };
             let posting = &self.terms[ti];
             let df = posting.docs.len() as f32;
-            let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
+            let idf = idf(n, df);
             for (doc, &tf) in posting.docs.iter().zip(&posting.tf) {
                 if allowed.is_some_and(|a| !a.contains(doc)) {
                     continue;
                 }
                 let dl = self.doc_len[doc as usize] as f32;
-                let tf = f32::from(tf);
-                let denom = tf + self.k1 * (1.0 - self.b + self.b * dl / self.avgdl.max(1.0));
-                *scores.entry(doc).or_insert(0.0) += idf * (tf * (self.k1 + 1.0)) / denom;
+                *scores.entry(doc).or_insert(0.0) +=
+                    idf * term_weight(f32::from(tf), dl, self.avgdl, self.k1, self.b);
             }
         }
 
@@ -284,7 +299,7 @@ impl Bm25 {
         let mut terms = Vec::with_capacity((term_count as usize).min(r.remaining()));
         let mut term_index = HashMap::with_capacity((term_count as usize).min(r.remaining()));
         for i in 0..term_count as usize {
-            let term = CompactString::from(r.str()?);
+            let term = CompactString::from(r.blob()?);
             let df = r.u32()? as usize;
             let roaring_bytes = r.len_prefixed()?;
             let docs = RoaringBitmap::deserialize_from(roaring_bytes)

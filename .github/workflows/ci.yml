@@ -1,5 +1,5 @@
-# Copyright: lituus-io, all rights reserved.
-# Author: terekete <spicyzhug@gmail.com>
+# Author: support@lituus.io
+# Copyright: lituus-io, all rights reserved
 name: CI
 
 on:
@@ -32,6 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - name: Install the pinned toolchain
         run: rustup show
       - run: cargo fmt --check
@@ -42,6 +47,11 @@ jobs:
     needs: fmt
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --features "$CI_FEATURES" --all-targets
@@ -60,6 +70,11 @@ jobs:
           - { name: windows-x86_64, runner: windows-latest }
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
@@ -77,6 +92,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       # "Installable by requirement" is only true for the combinations someone
@@ -99,6 +119,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --features "$CI_FEATURES" --no-deps
@@ -118,6 +143,11 @@ jobs:
         os: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
@@ -149,6 +179,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - run: rustup component add llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
@@ -168,3 +203,65 @@ jobs:
             cat coverage.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  compose:
+    name: Composition (remote, graph, kb)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: compose
+      - name: Start fake-gcs-server
+        run: |
+          docker run -d --name fakegcs -p 4443:4443 fsouza/fake-gcs-server \
+            -scheme http -port 4443 -public-host 127.0.0.1:4443 -external-url http://127.0.0.1:4443
+          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:4443/storage/v1/b?project=test" && break; sleep 1; done
+      - name: Clippy and test (memory, local directory, GCS emulator)
+        env:
+          OBJSTORE_FAKE_GCS: http://127.0.0.1:4443
+          PROPTEST_CASES: "256"
+        run: |
+          cargo clippy --features "$CI_FEATURES,remote,gcs,graph,kb" --all-targets
+          cargo test --features "$CI_FEATURES,remote,gcs,graph,kb"
+
+  semver:
+    name: Semver (additive only)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: semver
+      - name: API compatibility against the previous release tag
+        run: |
+          cur="v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')"
+          prev=$(git tag --sort=-v:refname --merged HEAD | grep -v "^$cur$" | head -1)
+          echo "baseline: $prev"
+          git worktree add "$GITHUB_WORKSPACE/../link-r-baseline" "$prev"
+          # A baseline published under another package name (the uu- rename)
+          # has no API to compare against.
+          name=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["name"])')
+          if ! grep -q "^name = \"$name\"" "$GITHUB_WORKSPACE/../link-r-baseline/Cargo.toml"; then
+            echo "baseline $prev is not $name: skipped"
+            exit 0
+          fi
+          RUSTUP_TOOLCHAIN=stable cargo install cargo-semver-checks --locked
+          cargo semver-checks --baseline-root "$GITHUB_WORKSPACE/../link-r-baseline"
+          cargo semver-checks --baseline-root "$GITHUB_WORKSPACE/../link-r-baseline" --all-features

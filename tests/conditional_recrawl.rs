@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The stateless conditional re-crawl, end to end through the facade.
 //!
@@ -16,6 +16,7 @@
 
 #![cfg(feature = "crawl")]
 
+use link_r::UrlKeyExt as _;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;

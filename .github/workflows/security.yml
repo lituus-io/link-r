@@ -1,5 +1,5 @@
-# Copyright: lituus-io, all rights reserved.
-# Author: terekete <spicyzhug@gmail.com>
+# Author: support@lituus.io
+# Copyright: lituus-io, all rights reserved
 name: Security
 
 on:
@@ -26,6 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       # cargo-audit is tooling, not part of the build: install it with a current
       # stable compiler rather than the crate's pinned nightly.
       - name: Install cargo-audit
@@ -37,13 +42,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
+      # Installed and run on the host: the deny action's container sees neither
+      # the siblings beside the checkout nor the pinned nightly toolchain.
+      - name: Install cargo-deny
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-deny --locked
+      - run: cargo deny check
 
   suite:
     name: Security suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       # tests/security.rs covers credential handling on private-source crawls:
@@ -57,12 +76,20 @@ jobs:
       # unbounded allocation.
       - name: Regression tests
         run: cargo test --features "$CI_FEATURES" --test regression
+      # Indexes written by 0.4.0 (format 2) must read, save and re-serialize identically.
+      - name: Golden compatibility (0.4.0 fixture)
+        run: cargo test --test golden_v040
 
   panic-lints:
     name: Panic-path lints
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned sibling repositories
+        shell: bash
+        env:
+          SIBLING_TOKEN: ${{ secrets.SIBLING_REPO_TOKEN || github.token }}
+        run: scripts/fetch-siblings.sh
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       # Advisory, not gating. The test suites use unwrap/expect freely by design,

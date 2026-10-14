@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The recursive HTTP crawler — the primary source.
 //!
@@ -10,6 +10,7 @@
 
 use crate::error::{Error, Result};
 use crate::extract::html::extract_links;
+use crate::url_key::UrlKeyExt as _;
 
 /// Kind-aware outbound-link extraction for the crawl frontier: HTML uses the
 /// byte scanner; Markdown uses the zero-dep Markdown link scanner (when that
@@ -49,8 +50,6 @@ const DEFAULT_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const DEFAULT_CONCURRENCY: usize = 8;
 /// Default retry budget per page for retriable errors.
 const DEFAULT_MAX_RETRIES: u32 = 2;
-/// Base backoff for exponential retry (`RETRY_BASE * 2^attempt`).
-const RETRY_BASE: Duration = Duration::from_millis(250);
 /// Upper bound on any single backoff, clamping a hostile `Retry-After`.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
@@ -380,13 +379,13 @@ fn is_asset(url: &Url) -> bool {
 }
 
 /// The backoff before a given retry attempt: `Retry-After` (clamped) for rate
-/// limits, otherwise exponential from [`RETRY_BASE`].
+/// limits, otherwise the shared jittered exponential backoff.
 fn backoff_for(err: &Error, attempt: u32) -> Duration {
     match err {
         Error::RateLimited { retry_after_ms } => {
             Duration::from_millis(*retry_after_ms).min(MAX_RETRY_AFTER)
         }
-        _ => RETRY_BASE.saturating_mul(2u32.saturating_pow(attempt)),
+        _ => objstore_r::net::backoff(attempt + 1),
     }
 }
 
@@ -1259,9 +1258,11 @@ mod tests {
             backoff_for(&Error::rate_limited(10_000_000), 3),
             MAX_RETRY_AFTER
         );
-        // Other retriable errors grow exponentially from RETRY_BASE.
-        assert_eq!(backoff_for(&Error::http(503, "x"), 0), RETRY_BASE);
-        assert_eq!(backoff_for(&Error::http(503, "x"), 1), RETRY_BASE * 2);
+        // Other retriable errors back off with the shared jittered curve.
+        for attempt in 0..10 {
+            let d = backoff_for(&Error::http(503, "x"), attempt);
+            assert!(d <= Duration::from_secs(5), "{d:?}");
+        }
     }
 
     #[test]

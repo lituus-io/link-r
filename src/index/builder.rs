@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The owned, mutable index builder: incremental upsert keyed by canonical URL.
 //!
@@ -11,10 +11,11 @@
 use crate::error::{Error, Result};
 use crate::index::meta::DocMeta;
 use crate::index::sparse::{Bm25, DEFAULT_B, DEFAULT_K1};
-use crate::index::{dense, serialize_sections, writer, Index};
+use crate::index::{dense, serialize_sections, Index};
 use crate::metric::Metric;
 use crate::resource::{DocId, ResourceKind};
 use crate::url_key::UrlKey;
+use crate::url_key::UrlKeyExt as _;
 use compact_str::CompactString;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -360,7 +361,10 @@ impl IndexBuilder {
     /// # Errors
     /// Returns [`Error::Io`] on a filesystem failure.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
-        writer::atomic_write(path, &self.serialize())
+        Ok(graph_r::fsio::write_atomic(
+            path.as_ref(),
+            &[&self.serialize()],
+        )?)
     }
 }
 

@@ -1,5 +1,5 @@
-// Copyright: lituus-io, all rights reserved.
-// Author: terekete <spicyzhug@gmail.com>
+// Author: support@lituus.io
+// Copyright: lituus-io, all rights reserved
 //
 //! The deterministic hash embedder — the zero-dependency, offline fallback.
 //!
@@ -14,8 +14,8 @@ use crate::error::{Error, Result};
 use crate::index::dense::l2_normalize;
 use crate::metric::Metric;
 use crate::text;
+use graph_r::hash::xxh3_64_seeded as xxh3_64_with_seed;
 use std::future::Ready;
-use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 /// Default character n-gram size for subword robustness.
 const DEFAULT_NGRAM: u8 = 3;
