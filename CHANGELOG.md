@@ -4,6 +4,17 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.1
+
+- Security: every lockfile (crate, Python binding, fuzz) refreshed to
+  patched releases, among them rustls 0.23.46 (RUSTSEC-2026-0346, -0347,
+  -0348, -0349) and the earlier rustls and quinn-proto fixes
+  (RUSTSEC-2026-0285, -0338 to -0342). The PyPI wheels are built from these.
+- The Security workflow audits all three lockfiles, not only the crate's.
+- CI: cargo-deny runs on the host; the golden test reads byte-exact fixtures
+  on Windows.
+- Builds against uu-graph-r 0.4.1 and uu-objstore-r 0.2.1.
+
 ## 0.4.0
 
 Breaking: index format 2 (indexes from 0.3 are rebuilt by re-indexing; the
