@@ -3,7 +3,7 @@
 
 [package]
 name = "uu-link-r"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.89"
 license = "AGPL-3.0-or-later"
@@ -82,7 +82,7 @@ secrecy = "0.10"
 roaring = "0.10"
 # The shared core: xxh3, byte codecs, the sectioned container, mmap, atomic
 # files and the text rules (one implementation with graph-r's lexicon).
-graph-r = { package = "uu-graph-r", path = "../graph-r", version = "0.4.0", default-features = false, features = ["mmap"] }
+graph-r = { package = "uu-graph-r", path = "../graph-r", version = ">=0.4.0, <0.6", default-features = false, features = ["mmap"] }
 # Retry, backoff and Retry-After policy shared with every HTTP client.
 objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = "0.2.0" }
 # try_join: the knowledge base hydrates both halves concurrently (feature kb).

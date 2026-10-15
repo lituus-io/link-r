@@ -4,6 +4,13 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.2
+
+- Builds on uu-graph-r 0.4 or 0.5 (`>=0.4.0, <0.6`), so a graph-r 0.5
+  build -- writer lock taken per commit, so several processes can write one
+  store -- can link link-r without a duplicate graph-r core. No API or
+  behaviour change; the suite passes against both minor lines.
+
 ## 0.4.1
 
 - Security: every lockfile (crate, Python binding, fuzz) refreshed to
