@@ -4,6 +4,14 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.3
+
+- Builds on uu-graph-r 0.4, 0.5 or 0.6 (`>=0.4.0, <0.7`), so a graph-r 0.6
+  build -- one checksummed log record per transaction, whole or absent
+  after a crash -- can link link-r without a duplicate graph-r core. No API
+  or behaviour change here: `bridge` keeps calling `set_edges`, which stays
+  infallible in 0.6, and the suite passes against 0.6.
+
 ## 0.4.2
 
 - Builds on uu-graph-r 0.4 or 0.5 (`>=0.4.0, <0.6`), so a graph-r 0.5
