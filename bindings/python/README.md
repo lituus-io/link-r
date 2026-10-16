@@ -1,5 +1,16 @@
 # link-r
 
+[![CI](https://github.com/lituus-io/link-r/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/ci.yml)
+[![Security](https://github.com/lituus-io/link-r/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/security.yml)
+[![Fuzz](https://github.com/lituus-io/link-r/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/fuzz.yml)
+[![Benchmark](https://github.com/lituus-io/link-r/actions/workflows/benchmark.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/benchmark.yml)
+[![Release](https://github.com/lituus-io/link-r/actions/workflows/release.yaml/badge.svg)](https://github.com/lituus-io/link-r/releases/latest)
+[![crates.io](https://img.shields.io/crates/v/uu-link-r?label=crates.io)](https://crates.io/crates/uu-link-r)
+[![docs.rs](https://img.shields.io/docsrs/uu-link-r?label=docs.rs)](https://docs.rs/uu-link-r)
+[![PyPI](https://img.shields.io/pypi/v/uu-link-r?label=PyPI)](https://pypi.org/project/uu-link-r/)
+[![Python](https://img.shields.io/pypi/pyversions/uu-link-r)](https://pypi.org/project/uu-link-r/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](https://github.com/lituus-io/link-r/blob/main/LICENSE)
+
 `pip install uu-link-r` → `import link_r` (Python ≥ 3.12, one `abi3` wheel per
 platform).
 
