@@ -1,5 +1,16 @@
 # link-r
 
+[![CI](https://github.com/lituus-io/link-r/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/ci.yml)
+[![Security](https://github.com/lituus-io/link-r/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/security.yml)
+[![Fuzz](https://github.com/lituus-io/link-r/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/fuzz.yml)
+[![Benchmark](https://github.com/lituus-io/link-r/actions/workflows/benchmark.yml/badge.svg?branch=main)](https://github.com/lituus-io/link-r/actions/workflows/benchmark.yml)
+[![Release](https://github.com/lituus-io/link-r/actions/workflows/release.yaml/badge.svg)](https://github.com/lituus-io/link-r/releases/latest)
+[![crates.io](https://img.shields.io/crates/v/uu-link-r?label=crates.io)](https://crates.io/crates/uu-link-r)
+[![docs.rs](https://img.shields.io/docsrs/uu-link-r?label=docs.rs)](https://docs.rs/uu-link-r)
+[![PyPI](https://img.shields.io/pypi/v/uu-link-r?label=PyPI)](https://pypi.org/project/uu-link-r/)
+[![Python](https://img.shields.io/pypi/pyversions/uu-link-r)](https://pypi.org/project/uu-link-r/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
+
 A tiny, embeddable **crawl-and-resolve knowledge index** for Rust (with Python bindings).
 
 Give it a parent HTTPS link. It concurrently crawls sublinks to a configurable
@@ -16,6 +27,13 @@ forever — so knowledge accumulates without growing endlessly.
 
 No server, no sidecar database — the index is a single mmap-able file. A freshly
 opened index searches **directly against the mapped file** (zero-copy, no rebuild).
+
+## Install
+
+| | |
+|---|---|
+| Rust | `cargo add uu-link-r` |
+| Python ≥3.12 (abi3 wheels: Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64) | `pip install uu-link-r` → `import link_r` |
 
 ## Rust
 
