@@ -84,7 +84,7 @@ roaring = "0.10"
 # files and the text rules (one implementation with graph-r's lexicon).
 graph-r = { package = "uu-graph-r", path = "../graph-r", version = ">=0.4.0, <0.7", default-features = false, features = ["mmap"] }
 # Retry, backoff and Retry-After policy shared with every HTTP client.
-objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = "0.2.0" }
+objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = ">=0.2.0, <0.4" }
 # try_join: the knowledge base hydrates both halves concurrently (feature kb).
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["alloc"] }
 
@@ -104,7 +104,7 @@ rayon = { version = "1.10", optional = true }
 texting_robots = { version = "0.2", optional = true }
 
 [dev-dependencies]
-objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = "0.2.0", features = ["testing", "gcs", "mirror"] }
+objstore-r = { package = "uu-objstore-r", path = "../objstore-r", version = ">=0.2.0, <0.4", features = ["testing", "gcs", "mirror"] }
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "test-util", "net", "io-util", "time"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 proptest = "1.5"

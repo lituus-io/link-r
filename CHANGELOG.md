@@ -11,6 +11,9 @@ All notable changes to link-r are documented here. Format follows
   after a crash -- can link link-r without a duplicate graph-r core. No API
   or behaviour change here: `bridge` keeps calling `set_edges`, which stays
   infallible in 0.6, and the suite passes against 0.6.
+- Accepts uu-objstore-r 0.3 beside 0.2 (`>=0.2.0, <0.4`): 0.3 bounds GCS
+  transfers by stalls rather than sizes and resumes uploads and downloads.
+  link-r uses its defaults, so nothing else changes.
 
 ## 0.4.2
 
