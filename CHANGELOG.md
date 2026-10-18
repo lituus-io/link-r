@@ -10,6 +10,9 @@ All notable changes to link-r are documented here. Format follows
   request policy and caller-only credentials to its HTTP client; link-r does
   not use that client, so there is no API or behaviour change here, and a
   build that takes objstore-r 0.4 no longer pulls a second objstore-r core.
+- CI and the release now build against the siblings the lockfile names
+  (graph-r v0.6.0, objstore-r v0.4.1); the pins had stayed at graph-r v0.4.1
+  and objstore-r v0.2.1. CI fails when the lockfile does not match them.
 
 ## 0.4.3
 
