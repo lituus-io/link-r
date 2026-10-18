@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "link-r-python"
-version = "0.4.1"
+version = "0.4.4"
 dependencies = [
  "pyo3",
  "tokio",
@@ -3162,7 +3162,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uu-graph-r"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "bytes",
  "memmap2",
@@ -3171,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "uu-link-r"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "async-stream",
  "bytes",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "uu-objstore-r"
-version = "0.2.1"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "thiserror 1.0.69",

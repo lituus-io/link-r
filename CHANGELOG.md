@@ -4,6 +4,13 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.4
+
+- Accepts uu-objstore-r 0.4 beside 0.2 and 0.3 (`>=0.2.0, <0.5`). 0.4 adds a
+  request policy and caller-only credentials to its HTTP client; link-r does
+  not use that client, so there is no API or behaviour change here, and a
+  build that takes objstore-r 0.4 no longer pulls a second objstore-r core.
+
 ## 0.4.3
 
 - Builds on uu-graph-r 0.4, 0.5 or 0.6 (`>=0.4.0, <0.7`), so a graph-r 0.6
