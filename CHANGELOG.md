@@ -4,6 +4,26 @@ All notable changes to link-r are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.5
+
+- Security: every lockfile (crate, Python binding, fuzz) refreshed to
+  patched releases. The PyPI wheels are built from these.
+  - rustls-webpki 0.103.16 and webpki-roots 1.0.11 (RUSTSEC-2026-0382,
+    -0381): certificate paths through the distrusted emSign intermediates,
+    whose private keys are public, are rejected. This is the TLS stack that
+    `HttpFetcher` and the `onnx` model download use.
+  - zstd 0.13.4, zstd-safe 7.4.0 and zstd-sys 2.1.2 (RUSTSEC-2026-0391,
+    -0398, -0403, -0410, plus the unsound notices RUSTSEC-2026-0395 to
+    -0397 and -0399 to -0406). link-r only calls `zstd::bulk`, which none of
+    these reach, but the patched code is what ships.
+- The Security workflow fails only on vulnerabilities. Unmaintained and
+  unsound advisories and yanked crates are reported as warnings on the run
+  instead of failing it.
+- Builds against uu-graph-r 0.6.1 and uu-objstore-r 0.4.2, the patch releases
+  carrying the same lockfile refresh (the sibling pins move from v0.6.0 and
+  v0.4.1).
+- No API or behaviour change.
+
 ## 0.4.4
 
 - Accepts uu-objstore-r 0.4 beside 0.2 and 0.3 (`>=0.2.0, <0.5`). 0.4 adds a
